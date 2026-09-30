@@ -39,3 +39,4 @@ yarn-error.log*
 uploads/
 vault/
 logs/
+*.tsbuildinfo
