@@ -58,10 +58,10 @@ class QueueService:
         if not appt:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
 
-        if appt.appointment_date != date.today():
+        if not is_reception_override and appt.appointment_date < date.today():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Check-in is only permitted on the day of the appointment ({appt.appointment_date.strftime('%B %d, %Y')}).",
+                detail=f"Cannot check in for past appointments ({appt.appointment_date.strftime('%B %d, %Y')}).",
             )
 
         if appt.status in [AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED]:

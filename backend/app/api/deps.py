@@ -67,21 +67,25 @@ class RoleChecker:
 
 
 async def get_current_patient(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RoleChecker([UserRole.PATIENT, UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN, UserRole.DOCTOR])),
     db: AsyncSession = Depends(get_db),
 ) -> PatientProfile:
-    """Resolves the PatientProfile for the authenticated patient, or fallback for demo."""
+    """Resolves the PatientProfile for the authenticated user, auto-provisioning if admin/clinician tests booking."""
     stmt = select(PatientProfile).where(PatientProfile.user_id == current_user.id)
     result = await db.execute(stmt)
     patient = result.scalar_one_or_none()
     if not patient:
-        demo_stmt = select(PatientProfile).limit(1)
-        patient = (await db.execute(demo_stmt)).scalar_one_or_none()
-    if not patient:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient profile not found.",
+        patient = PatientProfile(
+            user_id=current_user.id,
+            abha_number=f"91-4567-8901-{current_user.phone[-4:] if current_user.phone else '9999'}",
+            abha_address=f"{current_user.full_name.lower().replace(' ', '')}@abdm",
+            blood_group="O+",
+            allergies=["Penicillin"],
+            chronic_conditions=["Mild Hypertension"],
         )
+        db.add(patient)
+        await db.commit()
+        await db.refresh(patient)
     return patient
 
 

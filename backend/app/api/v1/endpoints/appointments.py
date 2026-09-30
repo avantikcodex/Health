@@ -52,6 +52,7 @@ def _map_appointment_response(appt: Appointment) -> AppointmentResponse:
         status=appt.status,
         reason_for_visit=appt.reason_for_visit,
         created_at=appt.created_at,
+        scheduled_start=f"{appt.appointment_date.isoformat()}T{appt.start_time.strftime('%H:%M:%S')}",
         queue_ticket=ticket_summary,
     )
 

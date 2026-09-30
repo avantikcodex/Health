@@ -119,13 +119,43 @@ export default function DoctorDiscoveryPage() {
     if (!bookingDoctor || !selectedSlot) return;
     setBookingLoading(true);
     setBookingError(null);
+
+    // Auto-authenticate as patient if no session exists
+    if (!api.getToken()) {
+      try {
+        const loginRes = await api.post<any>("/auth/login", {
+          identifier: "rahul@patient.com",
+          password: "password123",
+        });
+        if (loginRes?.access_token) {
+          api.setToken(loginRes.access_token);
+          localStorage.setItem("careflow_active_persona", "Rahul Verma (Patient)");
+        }
+      } catch (loginErr) {
+        console.error("Auto login error:", loginErr);
+      }
+    }
+
     try {
+      let slotDate = selectedDate;
+      let slotTime = "09:00";
+      if (selectedSlot.includes("T")) {
+        const parts = selectedSlot.split("T");
+        slotDate = parts[0];
+        slotTime = parts[1].substring(0, 5);
+      } else {
+        slotTime = selectedSlot.substring(0, 5);
+      }
+
       const res = await api.post<any>("/appointments/book", {
         doctor_id: bookingDoctor.id,
         hospital_id: bookingDoctor.hospital_id,
+        appointment_date: slotDate,
+        start_time: slotTime,
         scheduled_start: selectedSlot,
         chief_complaint: chiefComplaint || "General consultation",
-        appointment_type: "IN_PERSON",
+        reason_for_visit: chiefComplaint || "General consultation",
+        appointment_type: "NEW_CONSULT",
       });
       setBookingSuccess(res);
     } catch (err: any) {
@@ -304,28 +334,35 @@ export default function DoctorDiscoveryPage() {
 
             {bookingSuccess ? (
               <div className="text-center py-6 space-y-4">
-                <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-7 h-7" />
+                <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
+                  <CheckCircle2 className="w-8 h-8" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-lg text-slate-900">Appointment Confirmed!</h4>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Scheduled for {new Date(bookingSuccess.scheduled_start).toLocaleString()}
+                  <div className="inline-block px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-mono font-bold mb-2">
+                    Ref: {bookingSuccess.booking_reference || "CONFIRMED"}
+                  </div>
+                  <h4 className="font-bold text-xl text-slate-900">Appointment Confirmed!</h4>
+                  <p className="text-sm font-medium text-slate-700 mt-1">
+                    {bookingSuccess.doctor_name || bookingDoctor?.full_name} ({bookingSuccess.doctor_specialization || bookingDoctor?.specialization})
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {bookingSuccess.hospital_name || bookingDoctor?.hospital_name} &bull; {bookingSuccess.appointment_date} at {bookingSuccess.start_time}
                   </p>
                 </div>
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800">
-                  Your appointment is synchronized with the CareFlow Live Queue system. Check in via QR code on arrival.
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-800 leading-relaxed text-left">
+                  <span className="font-bold block mb-1">Queue Synchronized</span>
+                  Your OPD slot is saved. You can check in right now or on arrival to receive your live digital queue token and track wait times in real time.
                 </div>
-                <div className="flex items-center justify-center gap-3 pt-2">
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
                   <Link
                     href={`/patient/appointments/${bookingSuccess.id}/checkin`}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold"
+                    className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 text-center transition-all hover:scale-105"
                   >
-                    View Check-In Ticket
+                    Proceed to Contactless Check-In (QR Token) &rarr;
                   </Link>
                   <Link
                     href="/patient/dashboard"
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold"
+                    className="w-full sm:w-auto px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold text-center"
                   >
                     Go to Dashboard
                   </Link>

@@ -22,6 +22,7 @@ const DEMO_PERSONAS = [
   { label: "Dr. Ananya Sharma (Cardiology)", id: "dr.ananya@citycare.com", role: "DOCTOR", badge: "Clinician" },
   { label: "Amit Desai (Lab Tech)", id: "lab@citycare.com", role: "LAB_TECH", badge: "Diagnostics" },
   { label: "Suresh Menon (Hospital Admin)", id: "admin@citycare.com", role: "HOSPITAL_ADMIN", badge: "Hospital Ops" },
+  { label: "Super Admin (Admin Console)", id: "superadmin@careflow.com", role: "SUPER_ADMIN", badge: "Super Admin" },
 ];
 
 export default function Navbar() {
@@ -35,6 +36,13 @@ export default function Navbar() {
       .then(() => setApiConnected(true))
       .catch(() => setApiConnected(false));
 
+    // If currently on /admin, default to Super Admin
+    if (pathname.startsWith("/admin")) {
+      setCurrentUser("Super Admin (Admin Console)");
+      localStorage.setItem("careflow_active_persona", "Super Admin (Admin Console)");
+      return;
+    }
+
     // Ensure default patient token exists
     const stored = localStorage.getItem("careflow_active_persona");
     if (stored) {
@@ -42,7 +50,7 @@ export default function Navbar() {
     } else {
       switchPersona(DEMO_PERSONAS[0]);
     }
-  }, []);
+  }, [pathname]);
 
   const switchPersona = async (persona: typeof DEMO_PERSONAS[0]) => {
     try {
@@ -63,6 +71,7 @@ export default function Navbar() {
     { href: "/doctor/cockpit", label: "Doctor Cockpit", icon: Stethoscope, match: "/doctor" },
     { href: "/lab", label: "Diagnostic Lab", icon: FlaskConical, match: "/lab" },
     { href: "/hospital/operations", label: "Hospital Ops", icon: LayoutDashboard, match: "/hospital" },
+    { href: "/admin", label: "Admin Console", icon: ShieldCheck, match: "/admin" },
     { href: "/demo", label: "3-Screen Live Demo", icon: MonitorCheck, match: "/demo", highlight: true },
   ];
 
