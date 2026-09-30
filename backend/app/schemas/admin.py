@@ -20,10 +20,12 @@ class CreateDoctorRequest(BaseModel):
     hospital_id: str
     department_name: str
     specialization: str
-    qualification: str
-    registration_number: str
+    qualification: str = "MBBS, MD"
+    registration_number: str = "MCI-2024-99881"
+    experience_years: int = 10
     consultation_fee: float = 500.0
     room_number: str = "Room 101"
+    languages: Optional[List[str]] = Field(default_factory=lambda: ["English", "Hindi"])
 
 
 class UpdateUserRoleRequest(BaseModel):
@@ -34,3 +36,4 @@ class BroadcastAnnouncementRequest(BaseModel):
     title: str
     message: str
     severity: str = "INFO"
+

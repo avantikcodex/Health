@@ -3,7 +3,6 @@ from datetime import date, datetime, time
 from typing import List, Tuple
 from fastapi import HTTPException, status
 from sqlalchemy import and_, select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.models.appointment import Appointment
 from backend.app.models.enums import AppointmentStatus, AppointmentType, JourneyEventStatus, JourneyEventType, JourneyStatus
@@ -67,16 +66,12 @@ class SchedulingService:
         is_today = (target_date == now.date())
         current_time_min = now.hour * 60 + now.minute
 
-        # For demo and testing convenience, if current time is after clinic hours today,
-        # keep slots active so hackathon judges and evaluators are never blocked!
-        all_day_passed = is_today and (current_time_min >= end_min)
-
         while current + duration <= end_min:
             slot_start = cls._minutes_to_time(current)
             slot_end = cls._minutes_to_time(current + duration)
             
             is_booked = current in booked_times
-            is_past = (not all_day_passed) and is_today and (current <= current_time_min)
+            is_past = is_today and (current <= current_time_min)
             is_available = (not is_booked) and (not is_past)
 
             slots.append(
@@ -101,23 +96,10 @@ class SchedulingService:
         appointment_type: AppointmentType,
         reason_for_visit: str = None,
     ) -> Appointment:
-        if isinstance(appointment_type, str):
-            try:
-                appointment_type = AppointmentType[appointment_type]
-            except Exception:
-                appointment_type = AppointmentType.NEW_CONSULT
-
         time_parts = [int(p) for p in start_time_str.split(":")[:2]]
         start_t = time(time_parts[0], time_parts[1])
 
-        doc_stmt = (
-            select(DoctorProfile)
-            .options(
-                selectinload(DoctorProfile.user),
-                selectinload(DoctorProfile.hospital),
-            )
-            .where(DoctorProfile.id == doctor_id)
-        )
+        doc_stmt = select(DoctorProfile).where(DoctorProfile.id == doctor_id)
         doc_res = await db.execute(doc_stmt)
         doctor = doc_res.scalar_one_or_none()
         if not doctor:

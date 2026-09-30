@@ -261,7 +261,7 @@ async def create_doctor(
             registration_number=payload.registration_number,
             qualification=payload.qualification,
             specialization=payload.specialization,
-            experience_years=random.randint(5, 20),
+            experience_years=payload.experience_years,
             consultation_fee=payload.consultation_fee,
             room_number=payload.room_number,
             is_verified=True,
@@ -271,7 +271,9 @@ async def create_doctor(
     else:
         doc_profile.hospital_id = payload.hospital_id
         doc_profile.department_id = dept.id
+        doc_profile.qualification = payload.qualification
         doc_profile.specialization = payload.specialization
+        doc_profile.experience_years = payload.experience_years
         doc_profile.consultation_fee = payload.consultation_fee
         doc_profile.room_number = payload.room_number
 
@@ -301,6 +303,7 @@ async def create_doctor(
         "doctor_id": doc_profile.id,
         "full_name": payload.full_name,
         "specialization": payload.specialization,
+        "qualification": payload.qualification,
         "department": dept.name,
         "hospital_id": payload.hospital_id,
     }
@@ -336,7 +339,7 @@ async def get_all_users(
     items = []
     for u in users:
         abha = u.patient_profile.abha_number if u.patient_profile else None
-        dept = u.doctor_profile.specialization if u.doctor_profile else None
+        doc = u.doctor_profile
         items.append({
             "id": u.id,
             "full_name": u.full_name,
@@ -345,7 +348,12 @@ async def get_all_users(
             "role": u.role.value,
             "is_active": u.is_active,
             "abha_number": abha,
-            "specialization": dept,
+            "specialization": doc.specialization if doc else None,
+            "qualification": doc.qualification if doc else None,
+            "registration_number": doc.registration_number if doc else None,
+            "experience_years": doc.experience_years if doc else None,
+            "consultation_fee": doc.consultation_fee if doc else None,
+            "room_number": doc.room_number if doc else None,
             "created_at": u.created_at.isoformat() if u.created_at else None,
         })
     return items
