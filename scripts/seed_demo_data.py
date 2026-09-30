@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
@@ -380,13 +381,16 @@ async def seed_data():
         await session.flush()
 
         # Historical Prescription
-        rx_time_iso = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        rx_created_at = datetime.now(timezone.utc) - timedelta(days=14)
+        rx_time_str = rx_created_at.strftime("%Y-%m-%d %H:%M")
+        med_string = "Telmisartan:40 mg:1-0-0 (Once daily morning after food):30"
+        med_hash = hashlib.sha256(med_string.encode("utf-8")).hexdigest()
         rx_hash = generate_prescription_seal(
             prescription_id="RX-2026-00412",
             doctor_registration=doc_ananya.registration_number,
             patient_id=p_rahul.id,
-            timestamp_iso=rx_time_iso,
-            medications_hash="SHA256:TELMISARTAN-40MG-OD",
+            timestamp_iso=rx_time_str,
+            medications_hash=med_hash,
         )
         past_rx = Prescription(
             encounter_id=past_encounter.id,
@@ -397,6 +401,7 @@ async def seed_data():
             verification_code="CF-VRX-98124A",
             instructions="Take Telmisartan every morning after breakfast. Monitor BP weekly.",
             follow_up_date=date.today(),
+            created_at=rx_created_at,
         )
         session.add(past_rx)
         await session.flush()
