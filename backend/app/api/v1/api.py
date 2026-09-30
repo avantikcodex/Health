@@ -1,5 +1,16 @@
 from fastapi import APIRouter
-from backend.app.api.v1.endpoints import appointments, auth, clinical, consent, discovery, journey, lab, queue
+from backend.app.api.v1.endpoints import (
+    admin,
+    ai,
+    appointments,
+    auth,
+    clinical,
+    consent,
+    discovery,
+    journey,
+    lab,
+    queue,
+)
 
 api_router = APIRouter()
 
@@ -11,6 +22,8 @@ api_router.include_router(clinical.router)
 api_router.include_router(lab.router)
 api_router.include_router(journey.router)
 api_router.include_router(consent.router)
+api_router.include_router(ai.router)
+api_router.include_router(admin.router)
 
 @api_router.get("/status", tags=["System"])
 async def get_system_status():

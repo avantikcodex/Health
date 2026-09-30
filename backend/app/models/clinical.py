@@ -23,6 +23,8 @@ class Encounter(Base, TimestampMixin):
 
     # Relationships
     appointment: Mapped["Appointment"] = relationship("Appointment", back_populates="encounter")
+    patient: Mapped["PatientProfile"] = relationship("PatientProfile")
+    doctor: Mapped["DoctorProfile"] = relationship("DoctorProfile")
     prescription: Mapped[Optional["Prescription"]] = relationship("Prescription", back_populates="encounter", uselist=False, cascade="all, delete-orphan")
     lab_orders: Mapped[List["LabOrder"]] = relationship("LabOrder", back_populates="encounter", cascade="all, delete-orphan")
 
