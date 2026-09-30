@@ -53,3 +53,6 @@ class QueueTicket(Base, TimestampMixin):
 
     # Relationships
     appointment: Mapped["Appointment"] = relationship("Appointment", back_populates="queue_ticket")
+    doctor: Mapped["DoctorProfile"] = relationship("DoctorProfile")
+    hospital: Mapped["Hospital"] = relationship("Hospital")
+

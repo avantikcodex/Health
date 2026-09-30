@@ -23,7 +23,7 @@ class ReceptionCheckinRequest(BaseModel):
 @router.post("/checkin")
 async def patient_checkin(
     payload: CheckInRequest,
-    current_patient: PatientProfile = Depends(get_current_patient),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(Appointment).where(Appointment.id == payload.appointment_id)
@@ -32,17 +32,21 @@ async def patient_checkin(
     if not appt:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
 
-    if appt.patient_id != current_patient.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only check in for your own appointments.",
-        )
+    if current_user.role == UserRole.PATIENT:
+        p_stmt = select(PatientProfile).where(PatientProfile.user_id == current_user.id)
+        p_res = await db.execute(p_stmt)
+        patient = p_res.scalar_one_or_none()
+        if not patient or appt.patient_id != patient.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only check in for your own appointments.",
+            )
 
     ticket = await QueueService.check_in_patient(
         db=db,
         appointment_id=payload.appointment_id,
         qr_token=payload.qr_token,
-        is_reception_override=False,
+        is_reception_override=(current_user.role != UserRole.PATIENT),
     )
 
     return {

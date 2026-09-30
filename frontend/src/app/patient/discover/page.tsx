@@ -59,6 +59,13 @@ export default function DoctorDiscoveryPage() {
   const [bookingError, setBookingError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const spec = params.get("specialty");
+      if (spec) setSelectedSpecialty(spec);
+      const q = params.get("q");
+      if (q) setSearchQuery(q);
+    }
     loadInitialData();
   }, []);
 
