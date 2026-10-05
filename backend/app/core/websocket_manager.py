@@ -98,6 +98,12 @@ class WebSocketManager:
             except Exception:
                 pass
 
+    async def broadcast_hospital_event(self, hospital_id: str, data: Any) -> None:
+        """Broadcasts operational event to hospital-scoped room and waiting room."""
+        await self.broadcast_to_room(f"hospital:{hospital_id}", "HOSPITAL_OPERATIONAL_EVENT", data)
+        await self.broadcast_to_room("waiting_room", "HOSPITAL_OPERATIONAL_EVENT", data)
+
 
 # Global singleton instance
 ws_manager = WebSocketManager()
+

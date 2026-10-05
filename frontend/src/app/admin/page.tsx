@@ -535,6 +535,7 @@ export default function AdminControlCenterPage() {
 
           <div className="space-y-2">
             {[
+              { href: "/admin/admins", label: "Hospital Admin Registry", desc: "Designate & govern facility admins", icon: UserCheck },
               { href: "/admin/hospitals", label: "Hospital Governance", desc: "Manage institutions & NABH", icon: Building2 },
               { href: "/admin/doctors", label: "Doctor Verification", desc: "Credentials & council reg", icon: Stethoscope },
               { href: "/admin/users", label: "User Management & RBAC", desc: "Roles, suspensions & permissions", icon: Users },

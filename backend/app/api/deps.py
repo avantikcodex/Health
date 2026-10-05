@@ -121,3 +121,66 @@ async def get_current_doctor(
             detail="Doctor profile not found for current clinician.",
         )
     return doctor
+
+
+class HospitalAdminContext:
+    def __init__(self, user: User, assignment: Optional[Any], hospital: Any):
+        self.user = user
+        self.assignment = assignment
+        self.hospital = hospital
+        self.hospital_id: str = hospital.id
+
+
+async def get_current_hospital_admin(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HospitalAdminContext:
+    """
+    Enforces strict ground-level isolation:
+    1. Authenticated user must have UserRole.HOSPITAL_ADMIN
+    2. Must be bound to an active Hospital
+    3. If HospitalAdminAssignment exists, must be in ACTIVE status
+    """
+    if current_user.role != UserRole.HOSPITAL_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied. Hospital Administrator privileges required. Current role: {current_user.role.value}",
+        )
+
+    from backend.app.models.hospital_admin import HospitalAdminAssignment
+    from backend.app.models.hospital import Hospital
+
+    stmt = (
+        select(HospitalAdminAssignment)
+        .where(HospitalAdminAssignment.admin_user_id == current_user.id)
+        .order_by(HospitalAdminAssignment.created_at.desc())
+    )
+    assignment = (await db.execute(stmt)).scalars().first()
+
+    hospital_id = assignment.hospital_id if assignment else current_user.hospital_id
+    if not hospital_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. No hospital assigned to this Hospital Administrator account.",
+        )
+
+    if assignment and assignment.status in ["SUSPENDED", "REVOKED"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied. Hospital Administrator assignment is currently {assignment.status}.",
+        )
+
+    hosp = (await db.execute(select(Hospital).where(Hospital.id == hospital_id))).scalar_one_or_none()
+    if not hosp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assigned hospital facility does not exist.",
+        )
+
+    if not hosp.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. The assigned hospital facility is currently inactive.",
+        )
+
+    return HospitalAdminContext(user=current_user, assignment=assignment, hospital=hosp)

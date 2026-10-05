@@ -6,256 +6,353 @@ import { useRouter } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
-  FlaskConical,
+  Globe,
+  HeartPulse,
   Hospital,
   KeyRound,
   Lock,
   Mail,
   Phone,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Stethoscope,
   User,
+  Volume2,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import {
+  INDIAN_LANGUAGES,
+  LanguageProvider,
+  useLanguage,
+} from "@/context/LanguageContext";
+import {
+  AccessibilityProvider,
+  useAccessibility,
+} from "@/context/AccessibilityContext";
 
-const DEMO_ACCOUNTS = [
+const ROLE_PRESETS = [
   {
     role: "PATIENT",
+    title: "Patient",
     name: "Rahul Verma",
     id: "rahul@patient.com",
-    badge: "Patient",
-    redirect: "/patient/dashboard",
+    pass: "password123",
+    badge: "ABDM Health Record",
     icon: User,
+    color: "from-blue-500/20 to-cyan-500/10 text-cyan-400 border-cyan-500/30",
   },
   {
     role: "DOCTOR",
+    title: "Doctor",
     name: "Dr. Ananya Sharma",
     id: "dr.ananya@citycare.com",
+    pass: "password123",
     badge: "Cardiology OPD",
-    redirect: "/doctor/cockpit",
     icon: Stethoscope,
-  },
-  {
-    role: "LAB_TECH",
-    name: "Amit Desai",
-    id: "lab@citycare.com",
-    badge: "Diagnostics",
-    redirect: "/lab",
-    icon: FlaskConical,
+    color: "from-teal-500/20 to-emerald-500/10 text-teal-400 border-teal-500/30",
   },
   {
     role: "HOSPITAL_ADMIN",
-    name: "Suresh Menon",
-    id: "admin@citycare.com",
-    badge: "Hospital Ops",
-    redirect: "/hospital/operations",
+    title: "Hospital Admin",
+    name: "Amitabh Sen",
+    id: "amit.admin@maxhealthcare.in",
+    pass: "password123",
+    badge: "Facility Control",
     icon: Hospital,
+    color: "from-amber-500/20 to-orange-500/10 text-amber-400 border-amber-500/30",
   },
   {
     role: "SUPER_ADMIN",
-    name: "CareFlow Admin",
-    id: "superadmin@careflow.com",
-    badge: "Platform Admin",
-    redirect: "/admin",
+    title: "Super Admin",
+    name: "Platform Chief",
+    id: "edure6377@gmail.com",
+    pass: "CareFlowAdmin#2026",
+    badge: "Governance & Security",
     icon: ShieldCheck,
+    color: "from-rose-500/20 to-red-500/10 text-rose-400 border-rose-500/30",
   },
 ];
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const { currentLanguage, setLanguageCode, t } = useLanguage();
+  const { simpleView, setSimpleView, speakText } = useAccessibility();
+
   const [identifier, setIdentifier] = useState("rahul@patient.com");
   const [password, setPassword] = useState("password123");
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedRole, setSelectedRole] = useState("PATIENT");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (e?: React.FormEvent, customId?: string, customPass?: string, redirectPath?: string) => {
+  const handleSelectPreset = (preset: (typeof ROLE_PRESETS)[0]) => {
+    setSelectedRole(preset.role);
+    setIdentifier(preset.id);
+    setPassword(preset.pass);
+    setError(null);
+    speakText(`Selected ${preset.title} profile`);
+  };
+
+  const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const targetId = customId || identifier;
-    const targetPass = customPass || password;
-
     try {
       const res = await api.post<any>("/auth/login", {
-        identifier: targetId,
-        password: targetPass,
+        identifier: identifier.trim(),
+        password: password,
       });
+
+      if (!res.access_token) {
+        throw new Error("Invalid response from authorization server.");
+      }
 
       api.setToken(res.access_token);
 
-      // Determine redirect path
-      let dest = redirectPath || "/patient/dashboard";
-      if (!redirectPath) {
-        const userRole = res.user?.role;
-        if (userRole === "DOCTOR") dest = "/doctor/cockpit";
-        else if (userRole === "LAB_TECH") dest = "/lab";
-        else if (userRole === "HOSPITAL_ADMIN") dest = "/hospital/operations";
-        else if (userRole === "SUPER_ADMIN") dest = "/admin";
+      // ZERO-TRUST ROUTING: Dictated STRICTLY by the backend-authenticated user role
+      const authenticatedRole = res.user?.role;
+      let destination = "/patient/dashboard";
+
+      if (authenticatedRole === "SUPER_ADMIN") {
+        destination = "/admin";
+      } else if (authenticatedRole === "HOSPITAL_ADMIN") {
+        destination = "/hospital-admin";
+      } else if (authenticatedRole === "DOCTOR") {
+        destination = "/doctor/cockpit";
+      } else if (authenticatedRole === "LAB_TECH") {
+        destination = "/lab";
+      } else if (authenticatedRole === "RECEPTIONIST") {
+        destination = "/hospital-admin/queue";
+      } else {
+        destination = "/patient/dashboard";
       }
 
-      router.push(dest);
+      speakText(`Welcome, login successful. Loading ${authenticatedRole}`);
+      router.push(destination);
     } catch (err: any) {
-      setError(err?.message || "Invalid credentials. Please verify phone/email and password.");
+      setError(
+        err?.message || "Invalid credentials. Please verify your email/phone and password."
+      );
+      speakText("Login failed. Please verify credentials.");
     } finally {
       setLoading(false);
     }
   };
 
-  const quickLogin = (acc: typeof DEMO_ACCOUNTS[0]) => {
-    setIdentifier(acc.id);
-    setPassword("password123");
-    handleLogin(undefined, acc.id, "password123", acc.redirect);
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-emerald-50/20 to-slate-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-6">
-        {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2 group">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-600/20 group-hover:scale-105 transition-transform">
-              <Activity className="w-7 h-7 stroke-[2.5]" />
-            </div>
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            Welcome to CareFlow
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 lg:p-8">
+      {/* Top Navbar: Brand, Language Picker, Simple View, Voice Assistance */}
+      <header className="max-w-4xl w-full mx-auto flex items-center justify-between gap-4 py-2">
+        <Link href="/" className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+            <HeartPulse className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="font-bold text-base text-white tracking-wide">CareFlow</span>
+            <span className="block text-[10px] text-teal-400 font-mono">UNIFIED AUTH</span>
+          </div>
+        </Link>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Simple View Toggle */}
+          <button
+            onClick={() => setSimpleView((prev) => !prev)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+              simpleView
+                ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20"
+                : "bg-slate-900 border border-slate-800 text-slate-300 hover:text-white"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{simpleView ? t("normal_view", "Standard") : t("simple_view", "Elder / Simple")}</span>
+          </button>
+
+          {/* 22 Indian Languages */}
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
+            <Globe className="w-3.5 h-3.5 text-teal-400 mr-1.5 shrink-0" />
+            <select
+              aria-label="Interface Language"
+              value={currentLanguage.code}
+              onChange={(e) => setLanguageCode(e.target.value)}
+              className="bg-transparent text-xs text-slate-200 outline-none cursor-pointer pr-1"
+            >
+              {INDIAN_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code} className="bg-slate-900 text-slate-200">
+                  {lang.nativeName} ({lang.name})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Voice Prompt Help */}
+          <button
+            onClick={() =>
+              speakText(
+                "Welcome to CareFlow Healthcare. Click your role card or enter your registered mobile number or email and password to sign in."
+              )
+            }
+            className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-teal-400"
+            title="Read instructions aloud"
+          >
+            <Volume2 className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* Main Login Container */}
+      <main className="max-w-4xl w-full mx-auto my-6 space-y-6">
+        {/* Title */}
+        <div className="text-center space-y-1.5">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            {t("welcome", "Welcome to CareFlow")}
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500">
-            Sign in to access your sovereign healthcare journey & clinical tools.
+          <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+            {t("subtitle", "Unified Consent-Driven Healthcare Coordination Engine")}
           </p>
         </div>
 
-        {/* 1-Click Quick Demo Sign-In */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-600" />
-              <span>1-Click Instant Demo Login</span>
-            </span>
-            <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-              Hackathon Ready
-            </span>
+        {/* 4 Role Selector Cards */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+            <span className="font-semibold text-slate-300">{t("select_role", "Select Your Access Role")}</span>
+            <span className="text-[11px] text-teal-400">{t("demo_credentials", "Auto-fills credentials")}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            {DEMO_ACCOUNTS.slice(0, 4).map((acc) => {
-              const Icon = acc.icon;
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {ROLE_PRESETS.map((preset) => {
+              const Icon = preset.icon;
+              const isSelected = selectedRole === preset.role;
+
               return (
                 <button
-                  key={acc.id}
                   type="button"
-                  onClick={() => quickLogin(acc)}
-                  className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 border border-slate-200 text-left transition-all group"
+                  key={preset.role}
+                  onClick={() => handleSelectPreset(preset)}
+                  className={`p-4 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between ${
+                    simpleView ? "min-h-[115px]" : "min-h-[100px]"
+                  } ${
+                    isSelected
+                      ? `bg-slate-900 shadow-xl ${preset.color} ring-1 ring-teal-500/50`
+                      : "bg-slate-900/60 border-slate-800 text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+                  }`}
                 >
-                  <div className="w-7 h-7 rounded-lg bg-white shadow-2xs flex items-center justify-center text-emerald-700 shrink-0 group-hover:scale-105">
-                    <Icon className="w-4 h-4" />
+                  <div className="flex items-center justify-between">
+                    <div className="w-8 h-8 rounded-xl bg-slate-950/80 flex items-center justify-center">
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    {isSelected && (
+                      <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                    )}
                   </div>
-                  <div className="overflow-hidden">
-                    <div className="font-bold text-xs text-slate-900 truncate">{acc.name}</div>
-                    <div className="text-[10px] text-slate-500 truncate">{acc.badge}</div>
+                  <div>
+                    <div className="font-bold text-sm text-white mt-2">{preset.title}</div>
+                    <div className="text-[11px] text-slate-400 truncate">{preset.name}</div>
+                    <div className="text-[10px] font-mono mt-0.5 text-slate-500">{preset.badge}</div>
                   </div>
                 </button>
               );
             })}
           </div>
-
-          <button
-            type="button"
-            onClick={() => quickLogin(DEMO_ACCOUNTS[4])}
-            className="w-full p-2 rounded-xl bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 text-xs font-semibold text-slate-700 flex items-center justify-center gap-1.5 transition-all"
-          >
-            <ShieldCheck className="w-4 h-4 text-purple-600" />
-            <span>Login as Platform Super Admin</span>
-          </button>
         </div>
 
-        {/* Credentials Login Card */}
-        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-md space-y-5">
+        {/* Login Credentials Box */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl max-w-lg mx-auto">
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium animate-in fade-in">
-              {error}
+            <div className="p-3.5 mb-5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Phone Number or Email
+              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                {t("phone_or_email", "Mobile Number or Email Address")}
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                 <input
                   type="text"
                   required
-                  placeholder="e.g. rahul@patient.com or 9876543210"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  placeholder="Enter email or 10-digit mobile"
+                  className={`w-full pl-9 pr-3 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-teal-500 transition-colors ${
+                    simpleView ? "py-3 text-base min-h-[48px]" : "py-2.5 text-sm min-h-[42px]"
+                  }`}
                 />
               </div>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-slate-700">Password</label>
-                <span className="text-[11px] text-emerald-700 hover:underline cursor-pointer">
-                  Forgot?
-                </span>
+                <label className="text-xs font-semibold text-slate-300">
+                  {t("password", "Password")}
+                </label>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                 <input
                   type={showPassword ? "text" : "password"}
                   required
-                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-10 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                  placeholder="Enter account password"
+                  className={`w-full pl-9 pr-10 rounded-xl bg-slate-950 border border-slate-800 text-white outline-none focus:border-teal-500 transition-colors font-mono ${
+                    simpleView ? "py-3 text-base min-h-[48px]" : "py-2.5 text-sm min-h-[42px]"
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/25 disabled:opacity-50 flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
-              >
-                {loading ? "Signing in..." : "Sign In to CareFlow"}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className={`w-full rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-bold transition-all shadow-lg shadow-teal-600/20 flex items-center justify-center gap-2 mt-2 ${
+                simpleView ? "py-4 text-lg min-h-[56px]" : "py-3 text-sm min-h-[44px]"
+              }`}
+            >
+              <span>{loading ? t("logging_in", "Signing in securely...") : t("sign_in", "Sign In")}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </form>
 
-          <div className="pt-2 text-center border-t border-slate-100">
-            <p className="text-xs text-slate-500">
-              New to CareFlow?{" "}
-              <Link href="/signup" className="font-bold text-emerald-700 hover:underline">
-                Create an account
-              </Link>
+          {/* Zero-Trust Notice */}
+          <div className="mt-5 pt-4 border-t border-slate-800/80 text-center">
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Zero-Trust Security Gate: Session role and destination are verified exclusively by the backend operating layer.
             </p>
           </div>
         </div>
+      </main>
 
-        {/* Security badge */}
-        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 text-center">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>ABDM & DPDP Act 2023 Sovereign Data Protection</span>
-        </div>
-      </div>
+      {/* Footer */}
+      <footer className="max-w-4xl w-full mx-auto text-center text-xs text-slate-500 py-2">
+        CareFlow Healthcare Operating Layer • NRCeS FHIR R4 & ABDM M1/M2/M3 Compliant
+      </footer>
     </div>
+  );
+}
+
+export default function UnifiedLoginPage() {
+  return (
+    <LanguageProvider>
+      <AccessibilityProvider>
+        <LoginForm />
+      </AccessibilityProvider>
+    </LanguageProvider>
   );
 }

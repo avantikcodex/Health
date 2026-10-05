@@ -43,7 +43,11 @@ from backend.app.schemas.admin import (
     ChangeAdminPasswordRequest,
     UpdateAdminProfileRequest,
     RequestPasswordOtpResponse,
+    CreateHospitalAdminRequest,
+    HospitalAdminSummaryResponse,
+    UpdateHospitalAdminStatusRequest,
 )
+from backend.app.models.hospital_admin import HospitalAdminAssignment
 from backend.app.services.queue_service import QueueService
 
 router = APIRouter(prefix="/admin", tags=["Operations & Admin Control"])
@@ -52,7 +56,7 @@ router = APIRouter(prefix="/admin", tags=["Operations & Admin Control"])
 @router.get("/analytics")
 async def get_hospital_operations_analytics(
     hospital_id: Optional[str] = Query(None, description="Optional hospital filter"),
-    current_user: User = Depends(RoleChecker([UserRole.HOSPITAL_ADMIN, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -114,7 +118,7 @@ async def get_hospital_operations_analytics(
 @router.post("/simulate-queue-step")
 async def simulate_queue_step(
     doctor_id: str = Query(..., description="Doctor whose queue to advance"),
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN, UserRole.DOCTOR])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -139,7 +143,7 @@ async def simulate_queue_step(
 
 @router.get("/hospitals")
 async def get_all_hospitals(
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetches all registered hospitals with their departments and active doctors count."""
@@ -173,7 +177,7 @@ async def get_all_hospitals(
 @router.post("/hospitals", status_code=status.HTTP_201_CREATED)
 async def create_hospital(
     payload: CreateHospitalRequest,
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """Admin-only: Onboards a new hospital into the federated CareFlow network."""
@@ -225,7 +229,7 @@ async def create_hospital(
 @router.post("/doctors", status_code=status.HTTP_201_CREATED)
 async def create_doctor(
     payload: CreateDoctorRequest,
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """Admin-only: Registers and onboards a new verified doctor into a hospital department."""
@@ -333,7 +337,7 @@ async def create_doctor(
 async def get_all_users(
     role: Optional[UserRole] = Query(None),
     search: Optional[str] = Query(None),
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """Admin-only: Retrieve all registered platform users with search and role filter."""
@@ -420,7 +424,7 @@ async def update_user_role(
 @router.post("/announcements")
 async def broadcast_announcement(
     payload: BroadcastAnnouncementRequest,
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
 ):
     """Admin-only: Broadcasts a live marquee alert to all active doctor, patient & hospital screens."""
     await ws_manager.broadcast_global("PLATFORM_ANNOUNCEMENT", {
@@ -438,7 +442,7 @@ async def broadcast_announcement(
 
 @router.get("/doctors")
 async def get_all_doctors(
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """Admin-only: Retrieve all registered and practicing doctors with qualifications & status."""
@@ -486,7 +490,7 @@ async def get_all_doctors(
 @router.put("/doctors/{doctor_id}/status")
 async def toggle_doctor_status(
     doctor_id: str,
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1549,3 +1553,237 @@ async def update_admin_profile(
             "role": current_user.role.value,
         },
     }
+
+
+# -------------------------------------------------------------
+# SUPER ADMIN: HOSPITAL ADMIN REGISTRY & GOVERNANCE
+# -------------------------------------------------------------
+
+@router.get("/hospital-admins")
+async def get_all_hospital_admins(
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Super Admin-only: Lists all registered Hospital Administrators across the network with their
+    hospital binding, status, display ID, and assignment metadata.
+    """
+    stmt = (
+        select(HospitalAdminAssignment)
+        .options(
+            selectinload(HospitalAdminAssignment.user),
+            selectinload(HospitalAdminAssignment.hospital),
+            selectinload(HospitalAdminAssignment.department),
+            selectinload(HospitalAdminAssignment.assigned_by_user),
+        )
+        .order_by(HospitalAdminAssignment.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    assignments = result.scalars().all()
+
+    items = []
+    for a in assignments:
+        items.append({
+            "id": a.id,
+            "admin_display_id": a.admin_display_id,
+            "user_id": a.user_id,
+            "full_name": a.user.full_name if a.user else "Unknown Admin",
+            "email": a.user.email if a.user else "",
+            "phone": a.user.phone if a.user else "",
+            "hospital_id": a.hospital_id,
+            "hospital_name": a.hospital.name if a.hospital else "Unassigned",
+            "hospital_city": a.hospital.city if a.hospital else "N/A",
+            "hospital_state": a.hospital.state if a.hospital else "N/A",
+            "department_name": a.department.name if a.department else None,
+            "role": "HOSPITAL_ADMIN",
+            "status": a.status,
+            "assigned_by_name": a.assigned_by_user.full_name if a.assigned_by_user else "Super Admin",
+            "assigned_at": a.assigned_at.isoformat() if a.assigned_at else "",
+            "created_at": a.created_at.isoformat() if a.created_at else "",
+        })
+    return items
+
+
+@router.post("/hospital-admins", status_code=status.HTTP_201_CREATED)
+async def create_hospital_admin(
+    payload: CreateHospitalAdminRequest,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Super Admin-only: Creates a Hospital Administrator user account and binds them
+    strictly to an assigned hospital facility.
+    """
+    import re
+    hosp = (await db.execute(select(Hospital).where(Hospital.id == payload.hospital_id))).scalar_one_or_none()
+    if not hosp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target hospital not found.")
+
+    clean_email = payload.email.strip().lower()
+    clean_phone = payload.phone.strip()
+    dup_stmt = select(User).where(or_(func.lower(User.email) == clean_email, User.phone == clean_phone))
+    dup_user = (await db.execute(dup_stmt)).scalar_one_or_none()
+    if dup_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An account with this email ({clean_email}) or phone ({clean_phone}) already exists.",
+        )
+
+    # Format: ADM-{HOSP}-{CITY}-{SEQ:03d}
+    hosp_code = re.sub(r"[^A-Z0-9]", "", hosp.name.upper())[:4] or "HOSP"
+    city_code = re.sub(r"[^A-Z0-9]", "", hosp.city.upper())[:3] or "IND"
+
+    count_stmt = select(func.count(HospitalAdminAssignment.id)).where(HospitalAdminAssignment.hospital_id == hosp.id)
+    seq = (await db.execute(count_stmt)).scalar() or 0
+    admin_display_id = f"ADM-{hosp_code}-{city_code}-{seq + 1:03d}"
+
+    new_user = User(
+        email=clean_email,
+        phone=clean_phone,
+        password_hash=get_password_hash(payload.password or "password123"),
+        full_name=payload.full_name.strip(),
+        role=UserRole.HOSPITAL_ADMIN,
+        hospital_id=hosp.id,
+        is_active=True,
+    )
+    db.add(new_user)
+    await db.flush()
+
+    assignment = HospitalAdminAssignment(
+        admin_display_id=admin_display_id,
+        admin_user_id=new_user.id,
+        hospital_id=hosp.id,
+        department_id=payload.department_id,
+        assigned_by=current_user.id,
+        status="ACTIVE",
+        notes=payload.notes,
+    )
+    db.add(assignment)
+    await db.flush()
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="HOSPITAL_ADMIN_ASSIGNED",
+        resource_type="HOSPITAL_ADMIN",
+        resource_id=assignment.id,
+        status="SUCCESS",
+        details_json={
+            "admin_display_id": admin_display_id,
+            "user_email": clean_email,
+            "hospital_name": hosp.name,
+            "hospital_id": hosp.id,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(assignment)
+
+    return {
+        "status": "HOSPITAL_ADMIN_CREATED",
+        "assignment_id": assignment.id,
+        "admin_display_id": assignment.admin_display_id,
+        "user_id": new_user.id,
+        "email": new_user.email,
+        "full_name": new_user.full_name,
+        "hospital_id": hosp.id,
+        "hospital_name": hosp.name,
+        "assigned_at": assignment.assigned_at.isoformat(),
+    }
+
+
+@router.get("/hospital-admins/{admin_id}")
+async def get_hospital_admin_detail(
+    admin_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Detail of a specific Hospital Admin assignment."""
+    stmt = (
+        select(HospitalAdminAssignment)
+        .options(
+            selectinload(HospitalAdminAssignment.user),
+            selectinload(HospitalAdminAssignment.hospital),
+            selectinload(HospitalAdminAssignment.department),
+            selectinload(HospitalAdminAssignment.assigned_by_user),
+        )
+        .where(or_(HospitalAdminAssignment.id == admin_id, HospitalAdminAssignment.admin_user_id == admin_id))
+    )
+    assignment = (await db.execute(stmt)).scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital Admin assignment not found.")
+
+    return {
+        "id": assignment.id,
+        "admin_display_id": assignment.admin_display_id,
+        "user_id": assignment.user_id,
+        "full_name": assignment.user.full_name if assignment.user else "Unknown",
+        "email": assignment.user.email if assignment.user else "",
+        "phone": assignment.user.phone if assignment.user else "",
+        "hospital_id": assignment.hospital_id,
+        "hospital_name": assignment.hospital.name if assignment.hospital else "",
+        "hospital_city": assignment.hospital.city if assignment.hospital else "",
+        "hospital_state": assignment.hospital.state if assignment.hospital else "",
+        "department_name": assignment.department.name if assignment.department else None,
+        "status": assignment.status,
+        "notes": assignment.notes,
+        "assigned_by_name": assignment.assigned_by_user.full_name if assignment.assigned_by_user else "Super Admin",
+        "assigned_at": assignment.assigned_at.isoformat() if assignment.assigned_at else "",
+        "revoked_at": assignment.revoked_at.isoformat() if assignment.revoked_at else None,
+        "revocation_reason": assignment.revocation_reason,
+    }
+
+
+@router.put("/hospital-admins/{admin_id}/status")
+async def update_hospital_admin_status(
+    admin_id: str,
+    payload: UpdateHospitalAdminStatusRequest,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Suspends, reactivates, or revokes a Hospital Admin."""
+    from datetime import datetime
+    new_status = payload.status.upper()
+    if new_status not in ["ACTIVE", "SUSPENDED", "REVOKED"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status value. Must be ACTIVE, SUSPENDED, or REVOKED.")
+
+    stmt = (
+        select(HospitalAdminAssignment)
+        .options(selectinload(HospitalAdminAssignment.user), selectinload(HospitalAdminAssignment.hospital))
+        .where(or_(HospitalAdminAssignment.id == admin_id, HospitalAdminAssignment.admin_user_id == admin_id))
+    )
+    assignment = (await db.execute(stmt)).scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital Admin assignment not found.")
+
+    assignment.status = new_status
+    if assignment.user:
+        assignment.user.is_active = (new_status == "ACTIVE")
+    if new_status in ["SUSPENDED", "REVOKED"]:
+        assignment.revoked_at = datetime.utcnow()
+        assignment.revocation_reason = payload.reason
+    else:
+        assignment.revoked_at = None
+        assignment.revocation_reason = None
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action=f"HOSPITAL_ADMIN_{new_status}",
+        resource_type="HOSPITAL_ADMIN",
+        resource_id=assignment.id,
+        status="SUCCESS",
+        details_json={
+            "admin_display_id": assignment.admin_display_id,
+            "status": new_status,
+            "reason": payload.reason,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "STATUS_UPDATED",
+        "assignment_id": assignment.id,
+        "admin_display_id": assignment.admin_display_id,
+        "new_status": new_status,
+    }
+

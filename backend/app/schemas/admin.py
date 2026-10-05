@@ -169,3 +169,39 @@ class UpdateAdminProfileRequest(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
 
+
+class CreateHospitalAdminRequest(BaseModel):
+    hospital_id: str
+    full_name: str = Field(..., min_length=2)
+    email: str = Field(..., min_length=5)
+    phone: str = Field(..., min_length=8)
+    password: str = Field(default="password123", min_length=8)
+    department_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class HospitalAdminSummaryResponse(BaseModel):
+    id: str
+    admin_display_id: str
+    user_id: str
+    full_name: str
+    email: str
+    phone: str
+    hospital_id: str
+    hospital_name: str
+    hospital_city: str
+    hospital_state: str
+    department_name: Optional[str] = None
+    role: str = "HOSPITAL_ADMIN"
+    status: str  # ACTIVE, SUSPENDED, REVOKED
+    assigned_by_name: Optional[str] = None
+    assigned_at: str
+    created_at: str
+
+
+class UpdateHospitalAdminStatusRequest(BaseModel):
+    status: str  # ACTIVE, SUSPENDED, REVOKED
+    reason: str = Field(..., min_length=4)
+    confirm_phrase: Optional[str] = None
+
+
