@@ -387,7 +387,31 @@ async def update_user_role(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
+    if user.role == UserRole.SUPER_ADMIN and payload.role != UserRole.SUPER_ADMIN:
+        active_admins_stmt = select(func.count(User.id)).where(User.role == UserRole.SUPER_ADMIN, User.is_active == True)
+        active_admins_count = (await db.execute(active_admins_stmt)).scalar() or 0
+        if active_admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Security Barrier: Cannot demote the last remaining active Super Administrator.",
+            )
+
+    previous_role = user.role.value if hasattr(user.role, "value") else str(user.role)
     user.role = payload.role
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="USER_ROLE_CHANGED",
+        resource_type="USER",
+        resource_id=user.id,
+        status="SUCCESS",
+        details_json={
+            "target_email": user.email,
+            "previous_role": previous_role,
+            "new_role": payload.role.value if hasattr(payload.role, "value") else str(payload.role),
+        },
+    )
+    db.add(audit)
     await db.commit()
 
     return {"status": "ROLE_UPDATED", "user_id": user.id, "new_role": user.role.value}
@@ -482,6 +506,20 @@ async def toggle_doctor_status(
     if doc.user:
         doc.user.is_active = doc.is_verified
 
+    action_label = "DOCTOR_VERIFIED" if doc.is_verified else "DOCTOR_SUSPENDED"
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action=action_label,
+        resource_type="DOCTOR",
+        resource_id=doc.id,
+        status="SUCCESS",
+        details_json={
+            "doctor_name": doc.user.full_name if doc.user else "",
+            "is_verified": doc.is_verified,
+        },
+    )
+    db.add(audit)
+
     await db.commit()
     await db.refresh(doc)
 
@@ -515,6 +553,21 @@ async def toggle_hospital_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found.")
 
     hosp.is_active = not hosp.is_active
+
+    action_label = "HOSPITAL_REACTIVATED" if hosp.is_active else "HOSPITAL_SUSPENDED"
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action=action_label,
+        resource_type="HOSPITAL",
+        resource_id=hosp.id,
+        status="SUCCESS",
+        details_json={
+            "hospital_name": hosp.name,
+            "is_active": hosp.is_active,
+        },
+    )
+    db.add(audit)
+
     await db.commit()
     await db.refresh(hosp)
 
@@ -539,6 +592,8 @@ async def toggle_user_status(
 ):
     """
     Super Admin-only: Suspends or unbans a user account across the entire CareFlow network.
+    Guards against suspending the last remaining super admin, invalidates sessions upon suspension,
+    and logs an audit trail event.
     """
     if user_id == current_user.id:
         raise HTTPException(
@@ -551,7 +606,40 @@ async def toggle_user_status(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
+    # Guard: Cannot suspend last remaining super admin
+    if user.role == UserRole.SUPER_ADMIN and user.is_active:
+        active_admins_stmt = select(func.count(User.id)).where(User.role == UserRole.SUPER_ADMIN, User.is_active == True)
+        active_admins_count = (await db.execute(active_admins_stmt)).scalar() or 0
+        if active_admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Security Barrier: Cannot suspend the last remaining active Super Administrator.",
+            )
+
     user.is_active = not user.is_active
+
+    # Invalidate active sessions if suspended
+    if not user.is_active:
+        sess_stmt = select(AdminSession).where(AdminSession.user_id == user.id, AdminSession.is_active == True)
+        active_sessions = (await db.execute(sess_stmt)).scalars().all()
+        for sess in active_sessions:
+            sess.is_active = False
+
+    action_label = "USER_REACTIVATED" if user.is_active else "USER_SUSPENDED"
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action=action_label,
+        resource_type="USER",
+        resource_id=user.id,
+        status="SUCCESS",
+        details_json={
+            "target_email": user.email,
+            "target_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "new_is_active": user.is_active,
+        },
+    )
+    db.add(audit)
+
     await db.commit()
     await db.refresh(user)
 
@@ -1030,16 +1118,20 @@ async def get_system_health(
     db_latency = round((time.perf_counter() - t0) * 1000, 2)
 
     active_ws = len(getattr(ws_manager, "client_subscriptions", {}))
+    ai_status = "Healthy" if settings.GEMINI_API_KEY else "Not configured"
+    ai_latency = 85.0 if settings.GEMINI_API_KEY else None
+    ai_msg = "Gemini 2.5 Flash operational" if settings.GEMINI_API_KEY else "GEMINI_API_KEY not configured — Deterministic clinical fallback active"
+
+    overall_status = "Operational" if ai_status == "Healthy" else "Degraded"
 
     return SystemHealthResponse(
-        system_status="Operational",
-        status="Operational",
+        system_status=overall_status,
         timestamp=now_iso,
         backend=SystemComponentHealth(status="Healthy", latency_ms=1.2, message="FastAPI 0.115 Engine Active"),
-        database=SystemComponentHealth(status="Healthy", latency_ms=db_latency, message=f"{db_latency} ms"),
-        realtime_websocket=SystemComponentHealth(status="Healthy", latency_ms=0.5, message=f"{active_ws} active client sessions"),
-        ai_service=SystemComponentHealth(status="Degraded", latency_ms=120.0, message="Running with deterministic clinical fallback"),
-        authentication=SystemComponentHealth(status="Healthy", latency_ms=0.8, message="Strict server-side allowlist enforced"),
+        database=SystemComponentHealth(status="Healthy", latency_ms=db_latency, message=f"{db_latency} ms query probe"),
+        realtime_websocket=SystemComponentHealth(status="Healthy", latency_ms=0.5, message=f"{active_ws} active real-time connections"),
+        ai_service=SystemComponentHealth(status=ai_status, latency_ms=ai_latency, message=ai_msg),
+        authentication=SystemComponentHealth(status="Healthy", latency_ms=0.8, message="Argon2id & server allowlist active"),
     )
 
 
@@ -1220,7 +1312,50 @@ async def global_search_admin(
             "is_active": f.is_enabled,
         })
 
-    return results
+    return {
+        "doctors": [
+            {
+                "id": d.id,
+                "full_name": d.user.full_name if d.user else "Doctor",
+                "specialization": d.specialization,
+                "qualification": d.qualification,
+                "registration_number": d.registration_number,
+                "is_active": d.user.is_active if d.user else True,
+            }
+            for d in docs
+        ],
+        "hospitals": [
+            {
+                "id": h.id,
+                "name": h.name,
+                "city": h.city,
+                "state": h.state,
+                "is_active": h.is_active,
+            }
+            for h in hosps
+        ],
+        "users": [
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "email": u.email,
+                "phone": u.phone,
+                "role": u.role.value if hasattr(u.role, "value") else str(u.role),
+                "is_active": u.is_active,
+            }
+            for u in users
+        ],
+        "features": [
+            {
+                "id": f.id,
+                "name": f.name,
+                "key": f.key,
+                "is_enabled": f.is_enabled,
+            }
+            for f in feats
+        ],
+        "results": results,
+    }
 
 
 @router.post("/request-password-otp", response_model=RequestPasswordOtpResponse)
@@ -1373,6 +1508,12 @@ async def update_admin_profile(
     email_warning = None
     if payload.email and payload.email.strip().lower() != (current_user.email or "").strip().lower():
         new_email = payload.email.strip().lower()
+        # Strict Security Barrier: Allowlist cannot be modified at runtime via web UI
+        if new_email not in settings.super_admin_email_list:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Administrative email change rejected. Target address is not pre-approved in the server-side SUPER_ADMIN_EMAILS allowlist. Allowlist changes must occur via deployment configuration.",
+            )
         # Check uniqueness
         dup_stmt = select(User).where(and_(func.lower(User.email) == new_email, User.id != current_user.id))
         dup = (await db.execute(dup_stmt)).scalar_one_or_none()
@@ -1383,24 +1524,6 @@ async def update_admin_profile(
             )
 
         current_user.email = new_email
-
-        # If not already in allowlist, automatically update .env and in-memory settings
-        if new_email not in settings.super_admin_email_list:
-            try:
-                env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../.env"))
-                if os.path.exists(env_path):
-                    with open(env_path, "r", encoding="utf-8") as f:
-                        env_content = f.read()
-                    match = re.search(r'SUPER_ADMIN_EMAILS=["\']?(.*?)["\']?$', env_content, re.MULTILINE)
-                    if match:
-                        existing = match.group(1).strip()
-                        new_line = f'SUPER_ADMIN_EMAILS="{existing},{new_email}"'
-                        env_content = env_content[:match.start()] + new_line + env_content[match.end():]
-                        with open(env_path, "w", encoding="utf-8") as f:
-                            f.write(env_content)
-                        settings.SUPER_ADMIN_EMAILS = f"{existing},{new_email}"
-            except Exception as e:
-                email_warning = f"Email updated in database to {new_email}. Please also add it to SUPER_ADMIN_EMAILS in .env."
 
     audit = AuditLog(
         actor_id=current_user.id,

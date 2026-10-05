@@ -148,7 +148,7 @@ export default function VerifyPrescriptionPage() {
                     Cryptographically Sealed & Verified
                   </h3>
                   <p className="text-xs text-emerald-800">
-                    Officially authenticated by CareFlow Registry & National HPR.
+                    Authenticated by CareFlow Registry & Designed for National HPR.
                   </p>
                 </div>
               </div>

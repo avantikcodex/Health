@@ -35,7 +35,7 @@ async def complete_consultation(
         "encounter_id": encounter.id,
         "prescription_id": prescription.id if prescription else None,
         "verification_code": prescription.verification_code if prescription else None,
-        "message": "Consultation successfully completed and digitally signed.",
+        "message": "Consultation completed. Cryptographic HMAC-SHA256 record integrity seal generated.",
     }
 
 

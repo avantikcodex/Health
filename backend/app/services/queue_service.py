@@ -319,3 +319,42 @@ class QueueService:
             "completed_count": completed_count,
             "total_today": len(tickets),
         }
+
+    @classmethod
+    async def emergency_override(
+        cls,
+        db: AsyncSession,
+        ticket_id: str,
+        authorized_by_user_id: str,
+        reason: str,
+    ) -> QueueTicket:
+        stmt = (
+            select(QueueTicket)
+            .options(
+                selectinload(QueueTicket.doctor),
+                selectinload(QueueTicket.appointment),
+            )
+            .where(QueueTicket.id == ticket_id)
+        )
+        res = await db.execute(stmt)
+        ticket = res.scalar_one_or_none()
+        if not ticket:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Queue ticket not found.")
+
+        ticket.sequence_number = 0
+        ticket.state = QueueState.WAITING
+        ticket.estimated_wait_minutes = 0
+
+        await ws_manager.broadcast_to_room(
+            room=f"hospital:{ticket.hospital_id}:queue",
+            event_type="EMERGENCY_QUEUE_OVERRIDE",
+            data={
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "doctor_id": ticket.doctor_id,
+                "reason": reason,
+            },
+        )
+
+        return ticket
+

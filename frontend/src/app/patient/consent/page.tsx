@@ -307,7 +307,7 @@ export default function ConsentManagementPage() {
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <History className="w-5 h-5 text-indigo-600" />
-            <h3 className="font-bold text-base text-slate-900">Immutable Access Audit Trail</h3>
+            <h3 className="font-bold text-base text-slate-900">Access Audit Trail with Integrity Controls</h3>
           </div>
           <span className="text-xs text-slate-400">Tamper-Evident Security Log</span>
         </div>

@@ -24,6 +24,7 @@ from backend.app.models.consent import Consent, ConsentAccessLog
 from backend.app.models.audit import AuditLog
 from backend.app.models.feature import PlatformFeature
 from backend.app.models.session import AdminSession
+from backend.app.models.ai_trace import AIDecisionTrace
 
 __all__ = [
     "UserRole",
@@ -63,4 +64,5 @@ __all__ = [
     "AuditLog",
     "PlatformFeature",
     "AdminSession",
+    "AIDecisionTrace",
 ]

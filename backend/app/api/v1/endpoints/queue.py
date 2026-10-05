@@ -135,3 +135,60 @@ async def get_ticket_status(
         "room_number": ticket.doctor.room_number if ticket.doctor else "Room",
         "hospital_name": ticket.doctor.hospital.name if (ticket.doctor and ticket.doctor.hospital) else "Hospital",
     }
+
+
+class EmergencyQueueOverrideRequest(BaseModel):
+    ticket_id: str
+    reason: str  # Clinical triage justification (e.g. Acute chest pain, respiratory distress, trauma)
+
+
+@router.post("/emergency-override")
+async def emergency_queue_override(
+    payload: EmergencyQueueOverrideRequest,
+    current_user: User = Depends(RoleChecker([UserRole.DOCTOR, UserRole.HOSPITAL_ADMIN, UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Emergency Queue Fast-Track Override:
+    Allows authorized clinical staff to prioritize an urgent patient to the front of the queue.
+    Requires mandatory clinical triage reason and indelibly records an audit event.
+    """
+    if not payload.reason or len(payload.reason.strip()) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mandatory clinical justification required for emergency queue fast-track override.",
+        )
+
+    ticket = await QueueService.emergency_override(
+        db=db,
+        ticket_id=payload.ticket_id,
+        authorized_by_user_id=current_user.id,
+        reason=payload.reason.strip(),
+    )
+
+    from backend.app.models.audit import AuditLog
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="EMERGENCY_QUEUE_OVERRIDE",
+        resource_type="QUEUE_TICKET",
+        resource_id=ticket.id,
+        status="SUCCESS",
+        details_json={
+            "ticket_number": ticket.ticket_number,
+            "doctor_id": ticket.doctor_id,
+            "reason": payload.reason.strip(),
+            "authorized_by": current_user.full_name or current_user.email,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "EMERGENCY_OVERRIDE_APPLIED",
+        "ticket_id": ticket.id,
+        "ticket_number": ticket.ticket_number,
+        "sequence_number": ticket.sequence_number,
+        "reason": payload.reason.strip(),
+        "message": f"Emergency priority granted to ticket {ticket.ticket_number}. Moved to front of queue.",
+    }
+

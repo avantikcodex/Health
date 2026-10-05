@@ -84,14 +84,14 @@ export default function AuditExplorerPage() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              ABDM & DISHA COMPLIANCE
+              ABDM-ALIGNED & DISHA GOVERNANCE
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
             Audit Explorer & Integrity Trail
           </h1>
           <p className="text-xs text-slate-400">
-            Immutable log of all administrative actions, clinical state transitions, and identity elevations.
+            Audit log with integrity controls of all administrative actions, clinical state transitions, and identity elevations.
           </p>
         </div>
 

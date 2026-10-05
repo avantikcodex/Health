@@ -28,9 +28,114 @@ import {
   Stethoscope,
   Tv,
   Users,
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws";
+
+interface TourStep {
+  step: number;
+  title: string;
+  category: string;
+  speakerScript: string;
+  routeUrl: string;
+  keyCapability: string;
+}
+
+const TOUR_STEPS: TourStep[] = [
+  {
+    step: 1,
+    title: "Multi-Hospital OPD Discovery",
+    category: "PATIENT DISCOVERY",
+    speakerScript: "CareFlow allows patients to discover available doctors across city hospitals with real-time room status, consultation fees, and NABH accreditation.",
+    routeUrl: "/discovery",
+    keyCapability: "Unified hospital network discovery & fee transparency",
+  },
+  {
+    step: 2,
+    title: "Slot Booking & Token Allocation",
+    category: "BOOKING",
+    speakerScript: "Instant slot reservation with automated time allocation. Generates an encrypted appointment token and pre-visit instruction checklist.",
+    routeUrl: "/book",
+    keyCapability: "Dynamic slot allocation with zero double-booking",
+  },
+  {
+    step: 3,
+    title: "Contactless QR Check-In",
+    category: "ARRIVAL & CHECK-IN",
+    speakerScript: "Upon physical hospital arrival, scanning the reception QR instantly transitions appointment to CHECKED_IN and assigns sequence token CARD-A14.",
+    routeUrl: "/patient/appointments/0fffe2b7-1767-42d2-a126-c068066d0323/checkin",
+    keyCapability: "Location-verified QR scan & zero reception queueing",
+  },
+  {
+    step: 4,
+    title: "Waiting Hall Public Display",
+    category: "QUEUE VISIBILITY",
+    speakerScript: "Lobby TV displays live token calling with audio chime broadcasts over WebSocket, keeping OPD corridors orderly and eliminating patient anxiety.",
+    routeUrl: "/waiting-room",
+    keyCapability: "Sub-100ms WebSocket broadcast sync",
+  },
+  {
+    step: 5,
+    title: "Doctor Cockpit & Clinical Queue",
+    category: "DOCTOR COCKPIT",
+    speakerScript: "Clinician views current patient queue with one-click 'Call Next'. Integrates past encounters, active allergies, and vitals history.",
+    routeUrl: "/doctor/cockpit",
+    keyCapability: "One-click call-next & live queue sequencing",
+  },
+  {
+    step: 6,
+    title: "Assistive AI Clinical Scribe",
+    category: "CLINICAL AI",
+    speakerScript: "Google Gemini automatically synthesizes patient consultation history into structured SOAP notes with mandatory physician human-in-the-loop review.",
+    routeUrl: "/doctor/cockpit",
+    keyCapability: "Human-in-the-loop review disclaimer & SOAP draft",
+  },
+  {
+    step: 7,
+    title: "Digital Prescription & Integrity Seal",
+    category: "PRESCRIPTIONS",
+    speakerScript: "Prescriptions are sealed with an HMAC-SHA256 tamper-evident record hash and public verification code verifiable by pharmacies via QR.",
+    routeUrl: "/verify/rx/CARE-RX-2026-98421",
+    keyCapability: "HMAC-SHA256 cryptographic tamper evidence",
+  },
+  {
+    step: 8,
+    title: "Laboratory Diagnostic Accessioning",
+    category: "LAB DIAGNOSTICS",
+    speakerScript: "Pathologists verify test results against deterministic clinical reference ranges. High-risk troponin or potassium values trigger instant clinical alerts.",
+    routeUrl: "/lab",
+    keyCapability: "Deterministic reference ranges (Troponin, Potassium, Glucose)",
+  },
+  {
+    step: 9,
+    title: "ABDM-Aligned Patient Consent",
+    category: "CONSENT & PRIVACY",
+    speakerScript: "Patients grant granular, time-bound, purpose-specific consent for longitudinal health record access with one-click revocation and full audit visibility.",
+    routeUrl: "/consent",
+    keyCapability: "Time-bound, revocable consent artifacts",
+  },
+  {
+    step: 10,
+    title: "Patient Longitudinal Care Journey",
+    category: "CARE JOURNEY",
+    speakerScript: "Unifies appointments, check-ins, consultations, prescriptions, and verified lab results into a single interactive chronological care timeline.",
+    routeUrl: "/journey",
+    keyCapability: "End-to-end patient timeline from booking to recovery",
+  },
+  {
+    step: 11,
+    title: "Super Admin Control Center",
+    category: "MISSION CONTROL",
+    speakerScript: "Executive mission control tracking platform health, real-time WebSocket connections, security signals, feature toggles, and audited actions.",
+    routeUrl: "/admin",
+    keyCapability: "Authoritative server allowlist & 6-tier information hierarchy",
+  },
+];
 
 export default function ThreeScreenLiveDemoPage() {
   // Demo step state: 1: Scheduled, 2: Checked In, 3: Called to Room, 4: Rx Finalized, 5: Lab Verified
@@ -53,6 +158,49 @@ export default function ThreeScreenLiveDemoPage() {
 
   // Lab state
   const [labStatus, setLabStatus] = useState<"ORDERED" | "SAMPLE_COLLECTED" | "VERIFIED">("ORDERED");
+
+  // 2-Minute Presenter Guided Tour State
+  const [tourActive, setTourActive] = useState(false);
+  const [tourStepIndex, setTourStepIndex] = useState(0);
+  const [tourPlaying, setTourPlaying] = useState(false);
+
+  // Keyboard navigation for presenter tour
+  useEffect(() => {
+    const handleTourKeyDown = (e: KeyboardEvent) => {
+      if (!tourActive) return;
+      if (e.key === "ArrowRight" || e.key === "PageDown") {
+        e.preventDefault();
+        setTourStepIndex((prev) => Math.min(TOUR_STEPS.length - 1, prev + 1));
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault();
+        setTourStepIndex((prev) => Math.max(0, prev - 1));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setTourActive(false);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        setTourPlaying((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleTourKeyDown);
+    return () => window.removeEventListener("keydown", handleTourKeyDown);
+  }, [tourActive]);
+
+  // Auto-advance timer (12s per step when active & playing)
+  useEffect(() => {
+    if (!tourActive || !tourPlaying) return;
+    const interval = setInterval(() => {
+      setTourStepIndex((prev) => {
+        if (prev >= TOUR_STEPS.length - 1) {
+          setTourPlaying(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [tourActive, tourPlaying]);
 
   useEffect(() => {
     // Connect WebSocket
@@ -241,8 +389,19 @@ export default function ThreeScreenLiveDemoPage() {
             </button>
 
             <button
+              onClick={() => {
+                setTourActive(true);
+                setTourStepIndex(0);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs flex items-center gap-1.5 shadow-lg shadow-blue-900/40 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-white" />
+              <span>Start 2-Min Guided Tour</span>
+            </button>
+
+            <button
               onClick={handleResetDemo}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
               title="Reset Demo to Baseline"
             >
               <RotateCcw className="w-4 h-4" />
@@ -543,6 +702,95 @@ export default function ThreeScreenLiveDemoPage() {
       <footer className="p-4 border-t border-slate-800 text-center text-xs text-slate-500 bg-slate-950">
         CareFlow 3-Screen Live Synchronization • Powered by FastAPI WebSocket Gateway & SQLite / PostgreSQL Engine
       </footer>
+
+      {/* Docked Presenter Guided Tour Controller */}
+      {tourActive && (
+        <div className="fixed bottom-4 left-4 right-4 max-w-4xl mx-auto bg-slate-950/95 backdrop-blur-md border-2 border-blue-500/60 rounded-3xl p-5 shadow-2xl z-50 animate-in slide-in-from-bottom duration-200 text-white space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full">
+                {TOUR_STEPS[tourStepIndex].category}
+              </span>
+              <span className="text-xs font-mono text-slate-400">
+                Step {tourStepIndex + 1} of {TOUR_STEPS.length}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setTourPlaying(!tourPlaying)}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                title="Toggle Auto-Play (Space)"
+              >
+                {tourPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                <span>{tourPlaying ? "Pause Auto-Advance" : "Auto-Advance"}</span>
+              </button>
+              <button
+                onClick={() => setTourActive(false)}
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                title="Exit Guided Tour (Esc)"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h3 className="text-base font-black tracking-tight text-white flex items-center gap-2">
+                <span>{TOUR_STEPS[tourStepIndex].title}</span>
+                <span className="text-[11px] font-normal text-slate-400 font-mono">
+                  • {TOUR_STEPS[tourStepIndex].keyCapability}
+                </span>
+              </h3>
+              <p className="text-xs text-blue-200/90 leading-relaxed max-w-2xl">
+                🗣️ <span className="font-semibold text-white">Presenter Script:</span> {TOUR_STEPS[tourStepIndex].speakerScript}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Link
+                href={TOUR_STEPS[tourStepIndex].routeUrl}
+                target="_blank"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-all"
+              >
+                <span>Open Live Route</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1 border-t border-slate-900 text-xs text-slate-400">
+            <div className="flex items-center gap-1 font-mono text-[11px]">
+              <span>Hotkeys:</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px]">←</kbd> Prev
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] ml-1">→</kbd> Next
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] ml-1">Space</kbd> Pause
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] ml-1">Esc</kbd> Exit
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                disabled={tourStepIndex === 0}
+                onClick={() => setTourStepIndex((prev) => Math.max(0, prev - 1))}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 rounded-xl text-xs font-bold border border-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+
+              <button
+                disabled={tourStepIndex === TOUR_STEPS.length - 1}
+                onClick={() => setTourStepIndex((prev) => Math.min(TOUR_STEPS.length - 1, prev + 1))}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-md cursor-pointer"
+              >
+                <span>Next Step</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

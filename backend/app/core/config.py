@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours for dev/demo convenience
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Platform & Demo Mode Configuration
+    DEMO_MODE: bool = True
+
     # Database
     # Defaults to async SQLite for immediate local execution without external DB installation
     DATABASE_URL: str = "sqlite+aiosqlite:///./careflow.db"

@@ -49,22 +49,7 @@ async def update_admin_credentials(email: str, new_password: str, new_email: str
             if new_email and new_email.strip().lower() != target_email:
                 print(f"[+] Updating email address from {user.email} to {new_email.strip().lower()}")
                 user.email = new_email.strip().lower()
-
-                # Sync .env
-                env_path = os.path.join(WORKSPACE_ROOT, ".env")
-                if os.path.exists(env_path):
-                    with open(env_path, "r", encoding="utf-8") as f:
-                        env_content = f.read()
-                    if user.email not in env_content:
-                        import re
-                        match = re.search(r'SUPER_ADMIN_EMAILS=["\']?(.*?)["\']?$', env_content, re.MULTILINE)
-                        if match:
-                            existing = match.group(1).strip()
-                            new_line = f'SUPER_ADMIN_EMAILS="{existing},{user.email}"'
-                            env_content = env_content[:match.start()] + new_line + env_content[match.end():]
-                            with open(env_path, "w", encoding="utf-8") as f:
-                                f.write(env_content)
-                            print(f"[+] Automatically appended '{user.email}' to SUPER_ADMIN_EMAILS in .env!")
+                print(f"[i] Reminder: Ensure '{user.email}' is included in SUPER_ADMIN_EMAILS in your deployment configuration.")
 
         await session.commit()
         await session.refresh(user)

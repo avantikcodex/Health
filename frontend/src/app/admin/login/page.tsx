@@ -265,16 +265,18 @@ export default function AdminLoginPage() {
             </button>
           </form>
 
-          <div className="pt-4 border-t border-slate-900 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={handleQuickFill}
-              className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800/90 border border-slate-800 rounded-xl text-xs text-slate-300 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer font-medium"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>⚡ Quick Fill Super Admin (edure6377)</span>
-            </button>
-          </div>
+          {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
+            <div className="pt-4 border-t border-slate-900 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleQuickFill}
+                className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800/90 border border-slate-800 rounded-xl text-xs text-slate-300 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer font-medium"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>⚡ Quick Fill Super Admin (edure6377)</span>
+              </button>
+            </div>
+          )}
 
           <div className="rounded-xl p-3 bg-slate-900/60 border border-slate-800/70 text-slate-400 text-[11px] leading-relaxed flex items-start gap-2">
             <Shield className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" />

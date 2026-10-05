@@ -192,6 +192,10 @@ async def verify_and_upload_report(
     # Compute content SHA-256 hash for tamper prevention
     file_hash = hashlib.sha256(f"{rep_num}|{payload.summary}|{order.patient_id}".encode("utf-8")).hexdigest()
 
+    # Deterministic reference range evaluation
+    from backend.app.services.lab_evaluation_service import extract_and_evaluate_flags
+    evaluated_flags = extract_and_evaluate_flags(order.test_name, payload.summary, payload.abnormal_flags)
+
     report = LabReport(
         lab_order_id=order.id,
         patient_id=order.patient_id,
@@ -200,7 +204,7 @@ async def verify_and_upload_report(
         document_url=doc_url,
         file_sha256=file_hash,
         summary=payload.summary,
-        abnormal_flags=payload.abnormal_flags,
+        abnormal_flags=evaluated_flags,
         verified_at=now,
     )
     db.add(report)
