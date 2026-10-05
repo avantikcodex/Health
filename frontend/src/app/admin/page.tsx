@@ -82,7 +82,6 @@ export default function AdminPortalPage() {
   const [newDocSpec, setNewDocSpec] = useState("Cardiology");
   const [newDocQual, setNewDocQual] = useState("MBBS, MD (Cardiology)");
   const [newDocReg, setNewDocReg] = useState("MCI-2024-99881");
-  const [newDocExp, setNewDocExp] = useState("12");
   const [newDocFee, setNewDocFee] = useState("700");
   const [newDocRoom, setNewDocRoom] = useState("Room 205");
 
@@ -248,21 +247,18 @@ export default function AdminPortalPage() {
         hospital_id: targetHospId,
         department_name: newDocSpec,
         specialization: newDocSpec,
-        qualification: newDocQual.trim() || "MBBS, MD",
-        registration_number: newDocReg.trim() || "MCI-2024-99881",
-        experience_years: parseInt(newDocExp) || 10,
+        qualification: newDocQual,
+        registration_number: newDocReg,
         consultation_fee: parseFloat(newDocFee) || 500.0,
         room_number: newDocRoom,
       });
 
       await Promise.all([fetchUsers(), fetchHospitals()]);
-      setActionSuccess(`Dr. ${newDocName} (${newDocQual}) successfully onboarded and added to OPD Roster!`);
+      setActionSuccess(`Dr. ${newDocName} successfully onboarded and added to OPD Roster!`);
       setShowAddDoctorModal(false);
       setNewDocName("");
       setNewDocPhone("");
       setNewDocEmail("");
-      setNewDocQual("MBBS, MD");
-      setNewDocExp("10");
     } catch (err: any) {
       setActionError(err.message || `Failed to onboard doctor "${newDocName}".`);
     }
@@ -684,12 +680,10 @@ export default function AdminPortalPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
-                    <th className="py-3 px-4">Doctor & Degree Held</th>
+                    <th className="py-3 px-4">Doctor Name</th>
                     <th className="py-3 px-4">Specialization</th>
-                    <th className="py-3 px-4">Experience</th>
-                    <th className="py-3 px-4">Reg # & Room</th>
-                    <th className="py-3 px-4">Fee (₹)</th>
                     <th className="py-3 px-4">Phone / Contact</th>
+                    <th className="py-3 px-4">OPD Status</th>
                     <th className="py-3 px-4">Action</th>
                   </tr>
                 </thead>
@@ -698,42 +692,25 @@ export default function AdminPortalPage() {
                     .filter((u) => u.role === "DOCTOR")
                     .map((doc) => (
                       <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="py-3.5 px-4 font-bold text-slate-900">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0">
-                              {doc.full_name.replace("Dr. ", "").charAt(0)}
-                            </div>
-                            <div>
-                              <div className="font-extrabold text-slate-900">{doc.full_name}</div>
-                              <div className="text-[11px] text-blue-700 font-semibold bg-blue-50 px-2 py-0.5 rounded-md inline-block mt-0.5 border border-blue-200/60">
-                                {doc.qualification || "MBBS, MD"}
-                              </div>
-                            </div>
+                        <td className="py-3.5 px-4 font-bold text-slate-900 flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+                            {doc.full_name.charAt(0)}
                           </div>
+                          <span>{doc.full_name}</span>
                         </td>
+                        <td className="py-3.5 px-4 text-emerald-700 font-bold">{doc.specialization || "Cardiology"}</td>
+                        <td className="py-3.5 px-4 text-slate-500">{doc.phone}</td>
                         <td className="py-3.5 px-4">
-                          <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80 text-xs">
-                            {doc.specialization || "Cardiology"}
+                          <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold text-[10px] border border-emerald-200">
+                            VERIFIED & ACTIVE
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 text-slate-700 font-semibold">
-                          {doc.experience_years ? `${doc.experience_years} years` : "10+ years"}
-                        </td>
-                        <td className="py-3.5 px-4 text-slate-600">
-                          <div className="font-mono text-[11px] text-slate-800 font-bold">{doc.registration_number || "MCI-2024-99881"}</div>
-                          <div className="text-[11px] text-slate-500">{doc.room_number || "Room 205"}</div>
-                        </td>
-                        <td className="py-3.5 px-4 font-bold text-slate-900">
-                          ₹{doc.consultation_fee || 500}
-                        </td>
-                        <td className="py-3.5 px-4 text-slate-500 text-[11px]">{doc.phone}</td>
                         <td className="py-3.5 px-4">
                           <Link
                             href="/doctor/cockpit"
-                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-bold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-bold underline"
                           >
-                            <span>Cockpit</span>
-                            <ArrowRight className="w-3 h-3" />
+                            Open Cockpit
                           </Link>
                         </td>
                       </tr>
@@ -1028,34 +1005,32 @@ export default function AdminPortalPage() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Doctor Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Dr. Rohan Mehta"
-                    value={newDocName}
-                    onChange={(e) => setNewDocName(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Degree / Qualifications *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. MBBS, MD, DM, FACC"
-                    value={newDocQual}
-                    onChange={(e) => setNewDocQual(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-medium"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Doctor Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Dr. Rohan Mehta"
+                  value={newDocName}
+                  onChange={(e) => setNewDocName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Specialization *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mobile Phone *</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="10-digit number"
+                    value={newDocPhone}
+                    onChange={(e) => setNewDocPhone(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Specialization</label>
                   <select
                     value={newDocSpec}
                     onChange={(e) => setNewDocSpec(e.target.value)}
@@ -1067,47 +1042,7 @@ export default function AdminPortalPage() {
                     <option value="General Medicine">General Medicine</option>
                     <option value="Pediatrics">Pediatrics</option>
                     <option value="Neurology">Neurology</option>
-                    <option value="Oncology">Oncology</option>
-                    <option value="Gastroenterology">Gastroenterology</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Experience (Years) *</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    max="60"
-                    placeholder="e.g. 12"
-                    value={newDocExp}
-                    onChange={(e) => setNewDocExp(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mobile Phone *</label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="10-digit mobile"
-                    value={newDocPhone}
-                    onChange={(e) => setNewDocPhone(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Medical Reg # *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. MCI-2024-88419"
-                    value={newDocReg}
-                    onChange={(e) => setNewDocReg(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-mono"
-                  />
                 </div>
               </div>
 
@@ -1122,7 +1057,7 @@ export default function AdminPortalPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">OPD Room / Cabin</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">OPD Room</label>
                   <input
                     type="text"
                     value={newDocRoom}
@@ -1130,17 +1065,6 @@ export default function AdminPortalPage() {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Email Address (Optional)</label>
-                <input
-                  type="email"
-                  placeholder="e.g. dr.rohan@careflow.org"
-                  value={newDocEmail}
-                  onChange={(e) => setNewDocEmail(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
-                />
               </div>
 
               <button

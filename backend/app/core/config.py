@@ -42,5 +42,25 @@ class Settings(BaseSettings):
     NEXT_PUBLIC_APP_URL: str = "http://localhost:3000"
     NEXT_PUBLIC_API_URL: str = "http://localhost:8000"
 
+    # Super Admin Security Allowlist (comma-separated, normalized)
+    SUPER_ADMIN_EMAILS: str = "edure6377@gmail.com,superadmin@careflow.com"
+
+    # SMTP / Gmail Email Service for 2FA Verification Codes
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "CareFlow Security <no-reply@careflow.com>"
+    SMTP_USE_TLS: bool = True
+
+    @property
+    def super_admin_email_list(self) -> List[str]:
+        """Returns normalized (trimmed, lowercased) list of allowlisted super admin emails."""
+        return [
+            email.strip().lower()
+            for email in self.SUPER_ADMIN_EMAILS.split(",")
+            if email.strip()
+        ]
+
 
 settings = Settings()

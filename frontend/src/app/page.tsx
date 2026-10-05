@@ -161,6 +161,37 @@ export default function HomePage() {
               </div>
             </Link>
           </div>
+
+          {/* Super Admin Command Center Showcase Banner */}
+          <div className="mt-8 p-6 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-800 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center text-white shrink-0 shadow-lg shadow-orange-950/50">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider font-bold bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded border border-orange-500/30">
+                    MISSION CONTROL & GOVERNANCE
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                    ● ZERO-TRUST SERVER ALLOWLIST ACTIVE
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-white mt-1">Super Admin Control Center</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Platform-wide governance: doctor & hospital suspension, dynamic feature toggles, live AI safety oversight, 2FA security, and tamper-evident audit explorer.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              href="/admin/login"
+              className="px-5 py-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-950/40 flex items-center gap-2 transition-all hover:scale-105 shrink-0"
+            >
+              <span>Access Admin Panel</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
       </section>
 

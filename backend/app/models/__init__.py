@@ -22,6 +22,8 @@ from backend.app.models.clinical import Encounter, Prescription, PrescriptionIte
 from backend.app.models.journey import CareJourney, CareJourneyEvent
 from backend.app.models.consent import Consent, ConsentAccessLog
 from backend.app.models.audit import AuditLog
+from backend.app.models.feature import PlatformFeature
+from backend.app.models.session import AdminSession
 
 __all__ = [
     "UserRole",
@@ -59,4 +61,6 @@ __all__ = [
     "Consent",
     "ConsentAccessLog",
     "AuditLog",
+    "PlatformFeature",
+    "AdminSession",
 ]

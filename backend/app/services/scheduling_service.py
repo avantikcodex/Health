@@ -3,6 +3,7 @@ from datetime import date, datetime, time
 from typing import List, Tuple
 from fastapi import HTTPException, status
 from sqlalchemy import and_, select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.models.appointment import Appointment
 from backend.app.models.enums import AppointmentStatus, AppointmentType, JourneyEventStatus, JourneyEventType, JourneyStatus
@@ -99,7 +100,11 @@ class SchedulingService:
         time_parts = [int(p) for p in start_time_str.split(":")[:2]]
         start_t = time(time_parts[0], time_parts[1])
 
-        doc_stmt = select(DoctorProfile).where(DoctorProfile.id == doctor_id)
+        doc_stmt = (
+            select(DoctorProfile)
+            .options(selectinload(DoctorProfile.user), selectinload(DoctorProfile.hospital))
+            .where(DoctorProfile.id == doctor_id)
+        )
         doc_res = await db.execute(doc_stmt)
         doctor = doc_res.scalar_one_or_none()
         if not doctor:

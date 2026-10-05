@@ -52,6 +52,8 @@ async def get_current_user(
     return user
 
 
+from backend.app.core.config import settings
+
 class RoleChecker:
     """Enforces least-privilege role-based access control."""
     def __init__(self, allowed_roles: List[UserRole]) -> None:
@@ -63,7 +65,30 @@ class RoleChecker:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Required roles: {[r.value for r in self.allowed_roles]}. User role: {current_user.role.value}",
             )
+        if current_user.role == UserRole.SUPER_ADMIN:
+            if not current_user.email or current_user.email.strip().lower() not in settings.super_admin_email_list:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied. Super Admin email is not present in server allowlist.",
+                )
         return current_user
+
+
+async def get_current_super_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Strictly enforces active status, SUPER_ADMIN role, and normalized email allowlist."""
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Super Administrator privileges required.",
+        )
+    if not current_user.email or current_user.email.strip().lower() not in settings.super_admin_email_list:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Administrator email is not present in server allowlist.",
+        )
+    return current_user
 
 
 async def get_current_patient(

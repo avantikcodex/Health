@@ -44,6 +44,10 @@ export default function Navbar() {
     }
   }, []);
 
+  if (pathname?.startsWith("/admin") || pathname?.startsWith("/unauthorized")) {
+    return null;
+  }
+
   const switchPersona = async (persona: typeof DEMO_PERSONAS[0]) => {
     try {
       const res = await api.post<{ access_token: string; user: any }>("/auth/login", {
@@ -121,6 +125,15 @@ export default function Navbar() {
                 {apiConnected ? "API Live" : "API Offline"}
               </span>
             </div>
+
+            {/* Super Admin Portal Link */}
+            <Link
+              href="/admin/login"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition-all border border-slate-700 shadow-xs"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-orange-400" />
+              <span>Admin Portal</span>
+            </Link>
 
             <div className="relative group">
               <select

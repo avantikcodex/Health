@@ -84,6 +84,12 @@ class ApiService {
       } catch {
         errorMessage = `HTTP Error ${response.status}: ${response.statusText}`;
       }
+      if (response.status === 401 && typeof window !== "undefined") {
+        if (!endpoint.includes("/auth/login")) {
+          this.clearToken();
+        }
+      }
+
       throw new Error(errorMessage);
     }
 
