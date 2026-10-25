@@ -35,16 +35,20 @@ export default function Navbar() {
       .then(() => setApiConnected(true))
       .catch(() => setApiConnected(false));
 
-    // Ensure default patient token exists
+    // Check for stored persona if any
     const stored = localStorage.getItem("careflow_active_persona");
     if (stored) {
       setCurrentUser(stored);
-    } else {
-      switchPersona(DEMO_PERSONAS[0]);
     }
   }, []);
 
-  if (pathname?.startsWith("/admin") || pathname?.startsWith("/unauthorized")) {
+  if (
+    pathname?.startsWith("/patient") ||
+    pathname?.startsWith("/admin") ||
+    pathname?.startsWith("/hospital-admin") ||
+    pathname?.startsWith("/login") ||
+    pathname?.startsWith("/unauthorized")
+  ) {
     return null;
   }
 

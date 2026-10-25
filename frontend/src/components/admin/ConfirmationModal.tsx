@@ -38,7 +38,8 @@ export default function ConfirmationModal({
 
   if (!isOpen) return null;
 
-  const phraseMatches = !requiredPhrase || typedPhrase.trim() === requiredPhrase.trim();
+  const phraseMatches =
+    !requiredPhrase || typedPhrase.trim().toUpperCase() === requiredPhrase.trim().toUpperCase();
 
   const handleConfirm = async () => {
     if (!phraseMatches) return;

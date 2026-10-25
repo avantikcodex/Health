@@ -85,7 +85,7 @@ export const HospitalAdminHeader: React.FC = () => {
             title="Toggle Elder / High Legibility View"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{simpleView ? t("normal_view", "Standard View") : t("simple_view", "Simple View")}</span>
+            <span suppressHydrationWarning>{simpleView ? t("normal_view", "Standard View") : t("simple_view", "Simple View")}</span>
           </button>
 
           {/* 22 Language Selector */}

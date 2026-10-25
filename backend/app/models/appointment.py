@@ -25,6 +25,10 @@ class Appointment(Base, TimestampMixin):
     status: Mapped[AppointmentStatus] = mapped_column(Enum(AppointmentStatus), default=AppointmentStatus.CONFIRMED, nullable=False, index=True)
     reason_for_visit: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    @property
+    def scheduled_start(self) -> datetime:
+        return datetime.combine(self.appointment_date, self.start_time)
+
     # Relationships
     patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="appointments")
     doctor: Mapped["DoctorProfile"] = relationship("DoctorProfile", back_populates="appointments")

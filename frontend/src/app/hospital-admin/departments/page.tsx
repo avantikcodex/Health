@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Layers, Plus, Stethoscope, Loader2, CheckCircle2 } from "lucide-react";
+import { Layers, Plus, Stethoscope, Loader2, CheckCircle2, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAccessibility } from "@/context/AccessibilityContext";
+import ConfirmationModal from "@/components/admin/ConfirmationModal";
 
 interface DepartmentItem {
   id: string;
@@ -22,6 +23,8 @@ export default function DepartmentsPage() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deptToDelete, setDeptToDelete] = useState<DepartmentItem | null>(null);
   const { simpleView, speakText } = useAccessibility();
 
   const fetchDepts = async () => {
@@ -62,6 +65,24 @@ export default function DepartmentsPage() {
       setMessage(err.message || "Failed to create department.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (dept: DepartmentItem) => {
+    setDeptToDelete(dept);
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!deptToDelete) return;
+    try {
+      await api.delete(`/hospital-admin/departments/${deptToDelete.id}`);
+      setMessage(`Department '${deptToDelete.name}' has been permanently deleted.`);
+      setDeleteModalOpen(false);
+      setDeptToDelete(null);
+      await fetchDepts();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to delete department.");
     }
   };
 
@@ -127,9 +148,18 @@ export default function DepartmentsPage() {
                   {dept.description || "General hospital OPD department."}
                 </p>
               </div>
-              <div className="pt-3 mt-3 border-t border-slate-800 text-[11px] text-slate-500 flex justify-between">
+              <div className="pt-3 mt-3 border-t border-slate-800 text-[11px] text-slate-500 flex justify-between items-center">
                 <span>Facility Scoped</span>
-                <span className="text-emerald-400 font-medium">Active</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-400 font-medium">Active</span>
+                  <button
+                    onClick={() => handleOpenDeleteModal(dept)}
+                    title="Cut / Delete Department Permanently"
+                    className="p-1 rounded text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/20"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -194,6 +224,18 @@ export default function DepartmentsPage() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Permanent Department Deletion */}
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={executeDelete}
+        title={`Permanently Delete Department ${deptToDelete?.name}?`}
+        description={`Permanently removing (cutting) this department (${deptToDelete?.code}) will delete it from this hospital. This action CANNOT be undone.`}
+        requiredPhrase="DELETE"
+        confirmButtonText="Permanently Delete Department"
+        isDanger={true}
+      />
     </div>
   );
 }

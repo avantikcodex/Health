@@ -15,6 +15,7 @@ import {
   MapPin,
   X,
   History,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import ConfirmationModal from "@/components/admin/ConfirmationModal";
@@ -38,6 +39,8 @@ export default function HospitalManagementPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [hospitalToDelete, setHospitalToDelete] = useState<Hospital | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // New hospital form state
@@ -80,6 +83,8 @@ export default function HospitalManagementPage() {
         type: "success",
         message: `Hospital "${selectedHospital.name}" has been suspended from the CareFlow network.`,
       });
+      setConfirmModalOpen(false);
+      setSelectedHospital(null);
       fetchHospitals();
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to suspend hospital." });
@@ -96,6 +101,27 @@ export default function HospitalManagementPage() {
       fetchHospitals();
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to reactivate hospital." });
+    }
+  };
+
+  const handleOpenDeleteModal = (hosp: Hospital) => {
+    setHospitalToDelete(hosp);
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!hospitalToDelete) return;
+    try {
+      await api.delete(`/admin/hospitals/${hospitalToDelete.id}`);
+      setFeedback({
+        type: "success",
+        message: `Hospital "${hospitalToDelete.name}" has been permanently deleted from the CareFlow network.`,
+      });
+      setDeleteModalOpen(false);
+      setHospitalToDelete(null);
+      fetchHospitals();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to delete hospital." });
     }
   };
 
@@ -325,6 +351,14 @@ export default function HospitalManagementPage() {
                             <span>Reactivate</span>
                           </button>
                         )}
+
+                        <button
+                          onClick={() => handleOpenDeleteModal(hosp)}
+                          title="Permanently remove / cut hospital"
+                          className="p-1 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/30 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -344,6 +378,18 @@ export default function HospitalManagementPage() {
         description="Suspending this hospital will temporarily pause patient appointment booking and doctor roster access for this facility until reactivated."
         requiredPhrase="SUSPEND"
         confirmButtonText="Confirm Suspension"
+        isDanger={true}
+      />
+
+      {/* Confirmation Modal for Permanent Hospital Deletion */}
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={executeDelete}
+        title={`Permanently Delete ${hospitalToDelete?.name || "Hospital"}?`}
+        description="Permanently removing (cutting) this hospital will delete all associated departments, doctor listings, assignments, and OPD records for this facility. This action CANNOT be undone."
+        requiredPhrase="DELETE"
+        confirmButtonText="Permanently Delete Hospital"
         isDanger={true}
       />
 

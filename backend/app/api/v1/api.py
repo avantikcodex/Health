@@ -11,6 +11,7 @@ from backend.app.api.v1.endpoints import (
     journey,
     lab,
     queue,
+    support,
 )
 
 api_router = APIRouter()
@@ -25,6 +26,7 @@ api_router.include_router(journey.router)
 api_router.include_router(consent.router)
 api_router.include_router(ai.router)
 api_router.include_router(admin.router)
+api_router.include_router(support.router)
 api_router.include_router(hospital_admin.router, prefix="/hospital-admin", tags=["Hospital Admin"])
 
 @api_router.get("/status", tags=["System"])

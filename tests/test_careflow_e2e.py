@@ -1,3 +1,4 @@
+from datetime import date
 import pytest
 from httpx import ASGITransport, AsyncClient
 from backend.app.main import app
@@ -49,7 +50,8 @@ async def test_doctor_discovery_and_slots():
         assert "specialization" in first_doc
 
         # Query available slots for today
-        slot_res = await ac.get(f"/api/v1/discovery/doctors/{first_doc['id']}/slots?date=2026-10-01")
+        today_str = date.today().isoformat()
+        slot_res = await ac.get(f"/api/v1/discovery/doctors/{first_doc['id']}/slots?date={today_str}")
         assert slot_res.status_code == 200
         slot_data = slot_res.json()
         assert "slots" in slot_data

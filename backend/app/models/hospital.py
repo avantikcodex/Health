@@ -59,6 +59,15 @@ class DoctorProfile(Base, TimestampMixin):
     room_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     languages: Mapped[Optional[list]] = mapped_column(JSON, default=list, nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    listing_status: Mapped[str] = mapped_column(String(30), default="APPROVED", nullable=False)  # DRAFT, PENDING_REVIEW, APPROVED, SUSPENDED
+
+    @property
+    def license_number(self) -> str:
+        return self.registration_number
+
+    @license_number.setter
+    def license_number(self, val: str) -> None:
+        self.registration_number = val
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="doctor_profile")
@@ -80,6 +89,14 @@ class DoctorSchedule(Base, TimestampMixin):
     buffer_time_minutes: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     max_patients_per_session: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    @property
+    def max_patients(self) -> int:
+        return self.max_patients_per_session
+
+    @max_patients.setter
+    def max_patients(self, val: int) -> None:
+        self.max_patients_per_session = val
 
     # Relationships
     doctor: Mapped["DoctorProfile"] = relationship("DoctorProfile", back_populates="schedules")

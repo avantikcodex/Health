@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Users, UserPlus, Shield, Mail, Phone, Loader2, CheckCircle2 } from "lucide-react";
+import { Users, UserPlus, Shield, Mail, Phone, Loader2, CheckCircle2, Trash2, Ban, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAccessibility } from "@/context/AccessibilityContext";
+import ConfirmationModal from "@/components/admin/ConfirmationModal";
 
 interface StaffItem {
   id: string;
@@ -26,6 +27,8 @@ export default function StaffPage() {
   const [role, setRole] = useState("RECEPTIONIST");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [staffToDelete, setStaffToDelete] = useState<StaffItem | null>(null);
   const { simpleView, speakText } = useAccessibility();
 
   const fetchStaff = async () => {
@@ -68,6 +71,35 @@ export default function StaffPage() {
       setMessage(err.message || "Failed to register staff.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleStatus = async (staff: StaffItem) => {
+    try {
+      const action = staff.is_active ? "suspend" : "reactivate";
+      await api.put(`/hospital-admin/staff/${staff.id}/${action}`, {});
+      setMessage(`Staff member ${staff.full_name} is now ${staff.is_active ? "suspended" : "reactivated"}.`);
+      await fetchStaff();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to update staff status.");
+    }
+  };
+
+  const handleOpenDeleteModal = (staff: StaffItem) => {
+    setStaffToDelete(staff);
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!staffToDelete) return;
+    try {
+      await api.delete(`/hospital-admin/staff/${staffToDelete.id}`);
+      setMessage(`Staff member '${staffToDelete.full_name}' permanently deleted.`);
+      setDeleteModalOpen(false);
+      setStaffToDelete(null);
+      await fetchStaff();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to delete staff member.");
     }
   };
 
@@ -147,9 +179,27 @@ export default function StaffPage() {
                   </div>
                 </div>
               </div>
-              <div className="pt-3 mt-4 border-t border-slate-800 text-[11px] text-slate-500 flex justify-between">
-                <span>Joined {staff.created_at ? new Date(staff.created_at).toLocaleDateString() : "Recent"}</span>
-                <span className="text-teal-400">Facility Operations</span>
+              <div className="pt-3 mt-4 border-t border-slate-800 flex justify-between items-center text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => handleToggleStatus(staff)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 ${
+                      staff.is_active
+                        ? "bg-rose-500/10 hover:bg-rose-500/20 text-rose-400"
+                        : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
+                    }`}
+                  >
+                    {staff.is_active ? "Suspend" : "Activate"}
+                  </button>
+                  <button
+                    onClick={() => handleOpenDeleteModal(staff)}
+                    title="Cut / Delete Permanently"
+                    className="p-1 rounded text-rose-400 hover:text-white hover:bg-rose-500/20 border border-rose-500/20"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+                <span className="text-slate-500">Joined {staff.created_at ? new Date(staff.created_at).toLocaleDateString() : "Recent"}</span>
               </div>
             </div>
           ))}
@@ -236,6 +286,18 @@ export default function StaffPage() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Permanent Staff Deletion */}
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={executeDelete}
+        title={`Permanently Delete Staff Member ${staffToDelete?.full_name}?`}
+        description={`Permanently removing (cutting) this staff member (${staffToDelete?.role}) will revoke their account, active sessions, and access to this hospital. This action CANNOT be undone.`}
+        requiredPhrase="DELETE"
+        confirmButtonText="Permanently Delete Staff"
+        isDanger={true}
+      />
     </div>
   );
 }

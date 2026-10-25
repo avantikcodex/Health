@@ -2,7 +2,7 @@ import random
 from datetime import date, time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -56,7 +56,7 @@ router = APIRouter(prefix="/admin", tags=["Operations & Admin Control"])
 @router.get("/analytics")
 async def get_hospital_operations_analytics(
     hospital_id: Optional[str] = Query(None, description="Optional hospital filter"),
-    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN, UserRole.HOSPITAL_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -70,6 +70,19 @@ async def get_hospital_operations_analytics(
     - Average Queue Dwell Time
     - Active Doctors Roster
     """
+    if current_user.role == UserRole.HOSPITAL_ADMIN:
+        from backend.app.models.hospital_admin import HospitalAdminAssignment
+        assign_stmt = select(HospitalAdminAssignment).where(
+            HospitalAdminAssignment.admin_user_id == current_user.id,
+            HospitalAdminAssignment.status == "ACTIVE",
+        )
+        assign = (await db.execute(assign_stmt)).scalar_one_or_none()
+        if assign:
+            hospital_id = assign.hospital_id
+        else:
+            hosp_first = (await db.execute(select(Hospital))).scalars().first()
+            if hosp_first:
+                hospital_id = hosp_first.id
     today = date.today()
 
     appt_stmt = select(func.count(Appointment.id)).where(Appointment.appointment_date == today)
@@ -487,6 +500,126 @@ async def get_all_doctors(
 # ADMINISTRATIVE SUSPENSION & REACTIVATION CONTROLS
 # -------------------------------------------------------------
 
+@router.put("/doctors/{doctor_id}/suspend")
+async def suspend_doctor_practice(
+    doctor_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Suspends doctor clinical practice status."""
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id))
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if doc:
+        doc.is_verified = False
+        if doc.user:
+            doc.user.is_active = False
+        doc_id = doc.id
+        doc_name = doc.user.full_name if doc.user else ""
+    else:
+        # Fallback to User with DOCTOR role
+        user_stmt = select(User).where(User.id == doctor_id)
+        u = (await db.execute(user_stmt)).scalar_one_or_none()
+        if u and u.role == UserRole.DOCTOR:
+            u.is_active = False
+            doc_id = u.id
+            doc_name = u.full_name
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor profile not found.")
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="DOCTOR_SUSPENDED",
+        resource_type="DOCTOR",
+        resource_id=doc_id,
+        status="SUCCESS",
+        details_json={
+            "doctor_name": doc_name,
+            "is_verified": False,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    if doc:
+        await db.refresh(doc)
+
+    await ws_manager.broadcast_global("DOCTOR_STATUS_CHANGED", {
+        "doctor_id": doc_id,
+        "is_verified": False,
+        "full_name": doc_name,
+    })
+
+    return {
+        "status": "DOCTOR_SUSPENDED",
+        "doctor_id": doc_id,
+        "is_verified": False,
+        "is_active": False,
+    }
+
+
+@router.put("/doctors/{doctor_id}/reactivate")
+async def reactivate_doctor_practice(
+    doctor_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Reactivates doctor clinical practice status."""
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id))
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if doc:
+        doc.is_verified = True
+        if doc.user:
+            doc.user.is_active = True
+        doc_id = doc.id
+        doc_name = doc.user.full_name if doc.user else ""
+    else:
+        # Fallback to User with DOCTOR role
+        user_stmt = select(User).where(User.id == doctor_id)
+        u = (await db.execute(user_stmt)).scalar_one_or_none()
+        if u and u.role == UserRole.DOCTOR:
+            u.is_active = True
+            doc_id = u.id
+            doc_name = u.full_name
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor profile not found.")
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="DOCTOR_VERIFIED",
+        resource_type="DOCTOR",
+        resource_id=doc_id,
+        status="SUCCESS",
+        details_json={
+            "doctor_name": doc_name,
+            "is_verified": True,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    if doc:
+        await db.refresh(doc)
+
+    await ws_manager.broadcast_global("DOCTOR_STATUS_CHANGED", {
+        "doctor_id": doc_id,
+        "is_verified": True,
+        "full_name": doc_name,
+    })
+
+    return {
+        "status": "DOCTOR_REACTIVATED",
+        "doctor_id": doc_id,
+        "is_verified": True,
+        "is_active": True,
+    }
+
+
 @router.put("/doctors/{doctor_id}/status")
 async def toggle_doctor_status(
     doctor_id: str,
@@ -500,44 +633,213 @@ async def toggle_doctor_status(
     stmt = (
         select(DoctorProfile)
         .options(selectinload(DoctorProfile.user))
-        .where(DoctorProfile.id == doctor_id)
+        .where(or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id))
     )
     doc = (await db.execute(stmt)).scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor profile not found.")
+    if doc:
+        doc.is_verified = not doc.is_verified
+        if doc.user:
+            doc.user.is_active = doc.is_verified
+        is_active = doc.is_verified
+        doc_id = doc.id
+        doc_name = doc.user.full_name if doc.user else ""
+    else:
+        user_stmt = select(User).where(User.id == doctor_id)
+        u = (await db.execute(user_stmt)).scalar_one_or_none()
+        if u and u.role == UserRole.DOCTOR:
+            u.is_active = not u.is_active
+            is_active = u.is_active
+            doc_id = u.id
+            doc_name = u.full_name
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor profile not found.")
 
-    doc.is_verified = not doc.is_verified
-    if doc.user:
-        doc.user.is_active = doc.is_verified
-
-    action_label = "DOCTOR_VERIFIED" if doc.is_verified else "DOCTOR_SUSPENDED"
+    action_label = "DOCTOR_VERIFIED" if is_active else "DOCTOR_SUSPENDED"
     audit = AuditLog(
         actor_id=current_user.id,
         action=action_label,
         resource_type="DOCTOR",
-        resource_id=doc.id,
+        resource_id=doc_id,
         status="SUCCESS",
         details_json={
-            "doctor_name": doc.user.full_name if doc.user else "",
-            "is_verified": doc.is_verified,
+            "doctor_name": doc_name,
+            "is_verified": is_active,
         },
     )
     db.add(audit)
-
     await db.commit()
-    await db.refresh(doc)
+    if doc:
+        await db.refresh(doc)
 
     await ws_manager.broadcast_global("DOCTOR_STATUS_CHANGED", {
-        "doctor_id": doc.id,
-        "is_verified": doc.is_verified,
-        "full_name": doc.user.full_name if doc.user else "",
+        "doctor_id": doc_id,
+        "is_verified": is_active,
+        "full_name": doc_name,
     })
 
     return {
-        "status": "DOCTOR_STATUS_UPDATED",
-        "doctor_id": doc.id,
-        "is_verified": doc.is_verified,
-        "is_active": doc.is_verified,
+        "status": action_label,
+        "doctor_id": doc_id,
+        "is_verified": is_active,
+        "is_active": is_active,
+    }
+
+
+@router.delete("/doctors/{doctor_id}")
+async def delete_doctor_permanently(
+    doctor_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: Permanently removes a doctor profile and doctor user from the platform."""
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id))
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+
+    user_id_to_delete = None
+    doc_name = "Doctor"
+
+    if doc:
+        user_id_to_delete = doc.user_id
+        if doc.user:
+            doc_name = doc.user.full_name
+        doc_profile_id = doc.id
+
+        # Clean up DoctorSchedule
+        await db.execute(delete(DoctorSchedule).where(DoctorSchedule.doctor_id == doc_profile_id))
+
+        # Clean up queue tickets and appointments referencing this doctor
+        await db.execute(delete(QueueTicket).where(QueueTicket.doctor_id == doc_profile_id))
+        await db.execute(delete(Appointment).where(Appointment.doctor_id == doc_profile_id))
+
+        # Delete doctor profile
+        await db.delete(doc)
+    else:
+        u_stmt = select(User).where(User.id == doctor_id)
+        u = (await db.execute(u_stmt)).scalar_one_or_none()
+        if not u:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found.")
+        user_id_to_delete = u.id
+        doc_name = u.full_name
+
+    if user_id_to_delete:
+        await db.execute(delete(AdminSession).where(AdminSession.user_id == user_id_to_delete))
+        usr = (await db.execute(select(User).where(User.id == user_id_to_delete))).scalar_one_or_none()
+        if usr:
+            await db.delete(usr)
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="DOCTOR_PERMANENTLY_DELETED",
+        resource_type="DOCTOR",
+        resource_id=doctor_id,
+        status="SUCCESS",
+        details_json={"doctor_name": doc_name, "deleted_id": doctor_id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    await ws_manager.broadcast_global("DOCTOR_DELETED", {
+        "doctor_id": doctor_id,
+        "doctor_name": doc_name,
+    })
+
+    return {
+        "status": "DOCTOR_PERMANENTLY_DELETED",
+        "doctor_id": doctor_id,
+        "message": f"Dr. {doc_name} has been permanently removed.",
+    }
+
+
+@router.put("/hospitals/{hospital_id}/suspend")
+async def suspend_hospital(
+    hospital_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Super Admin-only: Suspends hospital operational status.
+    Immediately hides hospital and its OPD doctors from public search.
+    """
+    stmt = select(Hospital).where(Hospital.id == hospital_id)
+    hosp = (await db.execute(stmt)).scalar_one_or_none()
+    if not hosp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found.")
+
+    hosp.is_active = False
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="HOSPITAL_SUSPENDED",
+        resource_type="HOSPITAL",
+        resource_id=hosp.id,
+        status="SUCCESS",
+        details_json={
+            "hospital_name": hosp.name,
+            "is_active": hosp.is_active,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(hosp)
+
+    await ws_manager.broadcast_global("HOSPITAL_STATUS_CHANGED", {
+        "hospital_id": hosp.id,
+        "is_active": hosp.is_active,
+        "name": hosp.name,
+    })
+
+    return {
+        "status": "HOSPITAL_SUSPENDED",
+        "hospital_id": hosp.id,
+        "is_active": hosp.is_active,
+        "message": f"Hospital '{hosp.name}' has been suspended.",
+    }
+
+
+@router.put("/hospitals/{hospital_id}/reactivate")
+async def reactivate_hospital(
+    hospital_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Reactivates hospital operational status."""
+    stmt = select(Hospital).where(Hospital.id == hospital_id)
+    hosp = (await db.execute(stmt)).scalar_one_or_none()
+    if not hosp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found.")
+
+    hosp.is_active = True
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="HOSPITAL_REACTIVATED",
+        resource_type="HOSPITAL",
+        resource_id=hosp.id,
+        status="SUCCESS",
+        details_json={
+            "hospital_name": hosp.name,
+            "is_active": hosp.is_active,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(hosp)
+
+    await ws_manager.broadcast_global("HOSPITAL_STATUS_CHANGED", {
+        "hospital_id": hosp.id,
+        "is_active": hosp.is_active,
+        "name": hosp.name,
+    })
+
+    return {
+        "status": "HOSPITAL_REACTIVATED",
+        "hospital_id": hosp.id,
+        "is_active": hosp.is_active,
+        "message": f"Hospital '{hosp.name}' has been reactivated.",
     }
 
 
@@ -588,6 +890,161 @@ async def toggle_hospital_status(
     }
 
 
+@router.delete("/hospitals/{hospital_id}")
+async def delete_hospital_permanently(
+    hospital_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Permanently removes a hospital facility and all associated records."""
+    stmt = select(Hospital).where(Hospital.id == hospital_id)
+    hosp = (await db.execute(stmt)).scalar_one_or_none()
+    if not hosp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital not found.")
+
+    hosp_name = hosp.name
+
+    # Remove hospital admin assignments
+    await db.execute(delete(HospitalAdminAssignment).where(HospitalAdminAssignment.hospital_id == hospital_id))
+
+    # Clean up QueueTickets and Appointments for this hospital
+    await db.execute(delete(QueueTicket).where(QueueTicket.hospital_id == hospital_id))
+    await db.execute(delete(Appointment).where(Appointment.hospital_id == hospital_id))
+
+    # Clean up doctor profiles and schedules associated with this hospital
+    doc_profiles = (await db.execute(select(DoctorProfile).where(DoctorProfile.hospital_id == hospital_id))).scalars().all()
+    for dp in doc_profiles:
+        await db.execute(delete(DoctorSchedule).where(DoctorSchedule.doctor_id == dp.id))
+        await db.delete(dp)
+
+    # Clean up departments
+    await db.execute(delete(Department).where(Department.hospital_id == hospital_id))
+
+    # Delete the hospital itself
+    await db.delete(hosp)
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="HOSPITAL_PERMANENTLY_DELETED",
+        resource_type="HOSPITAL",
+        resource_id=hospital_id,
+        status="SUCCESS",
+        details_json={"hospital_name": hosp_name},
+    )
+    db.add(audit)
+    await db.commit()
+
+    await ws_manager.broadcast_global("HOSPITAL_DELETED", {
+        "hospital_id": hospital_id,
+        "hospital_name": hosp_name,
+    })
+
+    return {
+        "status": "HOSPITAL_PERMANENTLY_DELETED",
+        "hospital_id": hospital_id,
+        "message": f"Hospital '{hosp_name}' and all associated records have been permanently deleted.",
+    }
+
+
+@router.put("/users/{user_id}/suspend")
+async def suspend_user_account(
+    user_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Suspends any user account (patient, doctor, hospital admin)."""
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot suspend your own active Super Administrator account.",
+        )
+
+    stmt = select(User).where(User.id == user_id)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    if user.role == UserRole.SUPER_ADMIN and user.is_active:
+        active_admins_stmt = select(func.count(User.id)).where(User.role == UserRole.SUPER_ADMIN, User.is_active == True)
+        active_admins_count = (await db.execute(active_admins_stmt)).scalar() or 0
+        if active_admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Security Barrier: Cannot suspend the last remaining active Super Administrator.",
+            )
+
+    user.is_active = False
+
+    # Invalidate active sessions
+    sess_stmt = select(AdminSession).where(AdminSession.user_id == user.id, AdminSession.is_revoked == False)
+    active_sessions = (await db.execute(sess_stmt)).scalars().all()
+    for sess in active_sessions:
+        sess.is_revoked = True
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="USER_SUSPENDED",
+        resource_type="USER",
+        resource_id=user.id,
+        status="SUCCESS",
+        details_json={
+            "target_email": user.email,
+            "target_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "new_is_active": user.is_active,
+        },
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "status": "USER_SUSPENDED",
+        "user_id": user.id,
+        "is_active": user.is_active,
+        "message": f"Account for {user.full_name} has been suspended.",
+    }
+
+
+@router.put("/users/{user_id}/reactivate")
+async def reactivate_user_account(
+    user_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Reactivates a suspended user account."""
+    stmt = select(User).where(User.id == user_id)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    user.is_active = True
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="USER_REACTIVATED",
+        resource_type="USER",
+        resource_id=user.id,
+        status="SUCCESS",
+        details_json={
+            "target_email": user.email,
+            "target_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "new_is_active": user.is_active,
+        },
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "status": "USER_REACTIVATED",
+        "user_id": user.id,
+        "is_active": user.is_active,
+        "message": f"Account for {user.full_name} has been reactivated.",
+    }
+
+
 @router.put("/users/{user_id}/status")
 async def toggle_user_status(
     user_id: str,
@@ -624,10 +1081,10 @@ async def toggle_user_status(
 
     # Invalidate active sessions if suspended
     if not user.is_active:
-        sess_stmt = select(AdminSession).where(AdminSession.user_id == user.id, AdminSession.is_active == True)
+        sess_stmt = select(AdminSession).where(AdminSession.user_id == user.id, AdminSession.is_revoked == False)
         active_sessions = (await db.execute(sess_stmt)).scalars().all()
         for sess in active_sessions:
-            sess.is_active = False
+            sess.is_revoked = True
 
     action_label = "USER_REACTIVATED" if user.is_active else "USER_SUSPENDED"
     audit = AuditLog(
@@ -651,6 +1108,85 @@ async def toggle_user_status(
         "status": "USER_STATUS_UPDATED",
         "user_id": user.id,
         "is_active": user.is_active,
+    }
+
+
+@router.delete("/users/{user_id}")
+async def delete_user_permanently(
+    user_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Permanently removes a user account and associated profile."""
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own logged-in administrator account.",
+        )
+
+    stmt = select(User).where(User.id == user_id)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    # Guard: prevent deleting the last Super Admin
+    if user.role == UserRole.SUPER_ADMIN:
+        admin_count_stmt = select(func.count(User.id)).where(User.role == UserRole.SUPER_ADMIN)
+        admin_count = (await db.execute(admin_count_stmt)).scalar() or 0
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Security Barrier: Cannot delete the sole remaining Super Administrator.",
+            )
+
+    user_name = user.full_name
+    user_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    # Clean up dependent records based on role
+    # If patient:
+    pat = (await db.execute(select(PatientProfile).where(PatientProfile.user_id == user_id))).scalar_one_or_none()
+    if pat:
+        await db.execute(delete(QueueTicket).where(QueueTicket.patient_id == pat.id))
+        await db.execute(delete(Appointment).where(Appointment.patient_id == pat.id))
+        await db.delete(pat)
+
+    # If doctor:
+    dp = (await db.execute(select(DoctorProfile).where(DoctorProfile.user_id == user_id))).scalar_one_or_none()
+    if dp:
+        await db.execute(delete(DoctorSchedule).where(DoctorSchedule.doctor_id == dp.id))
+        await db.execute(delete(QueueTicket).where(QueueTicket.doctor_id == dp.id))
+        await db.execute(delete(Appointment).where(Appointment.doctor_id == dp.id))
+        await db.delete(dp)
+
+    # If hospital admin:
+    await db.execute(delete(HospitalAdminAssignment).where(HospitalAdminAssignment.admin_user_id == user_id))
+
+    # Clean sessions
+    await db.execute(delete(AdminSession).where(AdminSession.user_id == user_id))
+
+    # Delete user
+    await db.delete(user)
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="USER_PERMANENTLY_DELETED",
+        resource_type="USER",
+        resource_id=user_id,
+        status="SUCCESS",
+        details_json={"user_name": user_name, "role": user_role},
+    )
+    db.add(audit)
+    await db.commit()
+
+    await ws_manager.broadcast_global("USER_DELETED", {
+        "user_id": user_id,
+        "user_name": user_name,
+    })
+
+    return {
+        "status": "USER_PERMANENTLY_DELETED",
+        "user_id": user_id,
+        "message": f"User account for '{user_name}' ({user_role}) has been permanently deleted.",
     }
 
 
@@ -1785,5 +2321,57 @@ async def update_hospital_admin_status(
         "assignment_id": assignment.id,
         "admin_display_id": assignment.admin_display_id,
         "new_status": new_status,
+    }
+
+
+@router.delete("/hospital-admins/{admin_id}")
+@router.delete("/admins/{admin_id}")
+async def delete_hospital_admin_permanently(
+    admin_id: str,
+    current_user: User = Depends(RoleChecker([UserRole.SUPER_ADMIN])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super Admin-only: Permanently removes a Hospital Admin assignment and associated account."""
+    stmt = (
+        select(HospitalAdminAssignment)
+        .options(selectinload(HospitalAdminAssignment.user))
+        .where(or_(HospitalAdminAssignment.id == admin_id, HospitalAdminAssignment.admin_user_id == admin_id))
+    )
+    assignment = (await db.execute(stmt)).scalar_one_or_none()
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hospital Admin assignment not found.")
+
+    admin_display_id = assignment.admin_display_id
+    user_id_to_delete = assignment.admin_user_id
+    user_name = assignment.user.full_name if assignment.user else "Admin"
+
+    # Delete assignment
+    await db.delete(assignment)
+
+    # Delete user and sessions
+    if user_id_to_delete:
+        await db.execute(delete(AdminSession).where(AdminSession.user_id == user_id_to_delete))
+        usr = (await db.execute(select(User).where(User.id == user_id_to_delete))).scalar_one_or_none()
+        if usr:
+            await db.delete(usr)
+
+    audit = AuditLog(
+        actor_id=current_user.id,
+        action="HOSPITAL_ADMIN_PERMANENTLY_DELETED",
+        resource_type="HOSPITAL_ADMIN",
+        resource_id=admin_id,
+        status="SUCCESS",
+        details_json={
+            "admin_display_id": admin_display_id,
+            "user_name": user_name,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "HOSPITAL_ADMIN_DELETED",
+        "admin_id": admin_id,
+        "message": f"Hospital Admin '{admin_display_id}' ({user_name}) has been permanently deleted.",
     }
 

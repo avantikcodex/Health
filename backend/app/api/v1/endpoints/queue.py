@@ -1,14 +1,14 @@
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from backend.app.api.deps import RoleChecker, get_current_patient, get_current_user
 from backend.app.core.database import get_db
 from backend.app.models.appointment import Appointment, QueueTicket
-from backend.app.models.enums import UserRole
-from backend.app.models.hospital import DoctorProfile
+from backend.app.models.enums import QueueState, UserRole
+from backend.app.models.hospital import Department, DoctorProfile
 from backend.app.models.user import PatientProfile, User
 from backend.app.schemas.appointment import CheckInRequest
 from backend.app.services.queue_service import QueueService
@@ -117,21 +117,37 @@ async def get_ticket_status(
         .options(
             selectinload(QueueTicket.doctor).selectinload(DoctorProfile.user),
             selectinload(QueueTicket.doctor).selectinload(DoctorProfile.hospital),
+            selectinload(QueueTicket.doctor).selectinload(DoctorProfile.department),
         )
-        .where(QueueTicket.id == ticket_id)
+        .where(or_(QueueTicket.id == ticket_id, QueueTicket.appointment_id == ticket_id))
     )
     res = await db.execute(stmt)
     ticket = res.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Queue ticket not found.")
 
+    ahead_stmt = select(func.count(QueueTicket.id)).where(
+        QueueTicket.doctor_id == ticket.doctor_id,
+        QueueTicket.state.in_([QueueState.CHECKED_IN, QueueState.WAITING]),
+        QueueTicket.sequence_number < ticket.sequence_number,
+    )
+    ahead_res = await db.execute(ahead_stmt)
+    patients_ahead = ahead_res.scalar() or 0
+
     return {
+        "id": ticket.id,
         "ticket_id": ticket.id,
+        "appointment_id": ticket.appointment_id,
         "ticket_number": ticket.ticket_number,
         "sequence_number": ticket.sequence_number,
+        "queue_position": patients_ahead + 1 if ticket.state in [QueueState.WAITING, QueueState.CHECKED_IN] else 0,
+        "patients_ahead": patients_ahead,
         "state": ticket.state.value,
+        "status": ticket.state.value,
         "estimated_wait_minutes": ticket.estimated_wait_minutes,
+        "doctor_id": ticket.doctor_id,
         "doctor_name": ticket.doctor.user.full_name if (ticket.doctor and ticket.doctor.user) else "Doctor",
+        "department_name": ticket.doctor.department.name if (ticket.doctor and ticket.doctor.department) else "General OPD",
         "room_number": ticket.doctor.room_number if ticket.doctor else "Room",
         "hospital_name": ticket.doctor.hospital.name if (ticket.doctor and ticket.doctor.hospital) else "Hospital",
     }

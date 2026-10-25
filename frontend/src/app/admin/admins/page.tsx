@@ -18,6 +18,7 @@ import {
   UserCheck,
   UserX,
   Users,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import ConfirmationModal from "@/components/admin/ConfirmationModal";
@@ -68,6 +69,10 @@ export default function AdminRegistryPage() {
   // Status modal
   const [statusTarget, setStatusTarget] = useState<HospitalAdminItem | null>(null);
   const [nextStatus, setNextStatus] = useState<string>("SUSPENDED");
+
+  // Delete modal
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [adminToDelete, setAdminToDelete] = useState<HospitalAdminItem | null>(null);
 
   const loadData = async () => {
     try {
@@ -134,6 +139,24 @@ export default function AdminRegistryPage() {
       await loadData();
     } catch (err: any) {
       alert(err.message || "Failed to update status.");
+    }
+  };
+
+  const handleOpenDeleteModal = (adm: HospitalAdminItem) => {
+    setAdminToDelete(adm);
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!adminToDelete) return;
+    try {
+      await api.delete(`/admin/hospital-admins/${adminToDelete.id}`);
+      setToastMessage(`Hospital Admin "${adminToDelete.admin_display_id}" has been permanently removed.`);
+      setDeleteModalOpen(false);
+      setAdminToDelete(null);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || "Failed to delete hospital admin.");
     }
   };
 
@@ -341,6 +364,13 @@ export default function AdminRegistryPage() {
                             Reactivate
                           </button>
                         )}
+                        <button
+                          onClick={() => handleOpenDeleteModal(adm)}
+                          title="Permanently remove / cut hospital admin"
+                          className="p-1 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/30 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -471,6 +501,18 @@ export default function AdminRegistryPage() {
           isDanger={nextStatus !== "ACTIVE"}
         />
       )}
+
+      {/* Confirmation Modal for Permanent Hospital Admin Deletion */}
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={executeDelete}
+        title={`Permanently Delete Hospital Admin ${adminToDelete?.admin_display_id}?`}
+        description={`Permanently removing (cutting) this administrator (${adminToDelete?.full_name}) will revoke all operational control over ${adminToDelete?.hospital_name} and delete their platform admin account. This action CANNOT be undone.`}
+        requiredPhrase="DELETE"
+        confirmButtonText="Permanently Delete Admin"
+        isDanger={true}
+      />
     </div>
   );
 }

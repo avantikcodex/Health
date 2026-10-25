@@ -63,6 +63,12 @@ async def book_appointment(
     current_patient: PatientProfile = Depends(get_current_patient),
     db: AsyncSession = Depends(get_db),
 ):
+    if not payload.appointment_date or not payload.start_time:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Appointment date and start time are required.",
+        )
+
     if payload.appointment_date < date.today():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -174,6 +180,25 @@ async def cancel_appointment(
     appt = res.scalar_one_or_none()
     if not appt:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+
+    if current_user.role == UserRole.PATIENT:
+        stmt_p = select(PatientProfile).where(PatientProfile.user_id == current_user.id)
+        p_res = await db.execute(stmt_p)
+        patient = p_res.scalar_one_or_none()
+        if not patient or appt.patient_id != patient.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only cancel your own appointments.",
+            )
+    elif current_user.role == UserRole.DOCTOR:
+        stmt_d = select(DoctorProfile).where(DoctorProfile.user_id == current_user.id)
+        d_res = await db.execute(stmt_d)
+        doctor = d_res.scalar_one_or_none()
+        if not doctor or appt.doctor_id != doctor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You can only cancel appointments assigned to your clinic.",
+            )
 
     if appt.status in [AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED]:
         raise HTTPException(

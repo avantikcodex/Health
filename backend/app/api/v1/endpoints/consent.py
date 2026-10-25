@@ -98,6 +98,7 @@ async def request_patient_consent(
 
 
 @router.get("/my-requests", response_model=List[ConsentResponse])
+@router.get("/my-consents", response_model=List[ConsentResponse])
 async def list_my_consents(
     current_patient: PatientProfile = Depends(get_current_patient),
     db: AsyncSession = Depends(get_db),
@@ -230,6 +231,7 @@ async def revoke_consent(
 
 
 @router.get("/access-history", response_model=List[ConsentAccessLogResponse])
+@router.get("/audit-log", response_model=List[ConsentAccessLogResponse])
 async def get_consent_access_history(
     current_patient: PatientProfile = Depends(get_current_patient),
     db: AsyncSession = Depends(get_db),

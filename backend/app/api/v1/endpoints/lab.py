@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from backend.app.api.deps import RoleChecker, get_current_user
+from backend.app.api.deps import RoleChecker, get_current_patient, get_current_user
 from backend.app.core.database import get_db
 from backend.app.core.websocket_manager import ws_manager
 from backend.app.models.clinical import Encounter, LabOrder, LabReport
@@ -27,6 +27,57 @@ from backend.app.schemas.lab import (
 )
 
 router = APIRouter(prefix="/lab", tags=["Laboratory Diagnostics"])
+
+
+@router.get("/my")
+async def list_my_lab_orders(
+    current_patient: PatientProfile = Depends(get_current_patient),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns diagnostic laboratory requisitions and reports for the authenticated patient."""
+    stmt = (
+        select(LabOrder)
+        .options(
+            selectinload(LabOrder.patient).selectinload(PatientProfile.user),
+            selectinload(LabOrder.doctor).selectinload(DoctorProfile.user),
+            selectinload(LabOrder.doctor).selectinload(DoctorProfile.hospital),
+            selectinload(LabOrder.report),
+        )
+        .where(LabOrder.patient_id == current_patient.id)
+        .order_by(desc(LabOrder.created_at))
+    )
+    res = await db.execute(stmt)
+    orders = res.scalars().all()
+
+    output = []
+    for o in orders:
+        report_data = None
+        if o.report:
+            report_data = {
+                "id": o.report.id,
+                "summary": o.report.summary,
+                "abnormal_flags": o.report.abnormal_flags,
+                "verified_at": o.report.verified_at.isoformat() if o.report.verified_at else None,
+                "document_url": o.report.document_url,
+            }
+
+        output.append({
+            "id": o.id,
+            "encounter_id": o.encounter_id,
+            "patient_id": o.patient_id,
+            "patient_name": o.patient.user.full_name if (o.patient and o.patient.user) else "Patient",
+            "patient_phone": o.patient.user.phone if (o.patient and o.patient.user) else "",
+            "doctor_name": o.doctor.user.full_name if (o.doctor and o.doctor.user) else "Doctor",
+            "hospital_name": o.doctor.hospital.name if (o.doctor and o.doctor.hospital) else "Hospital",
+            "test_name": o.test_name,
+            "test_code": o.test_code,
+            "priority": o.priority.value if hasattr(o.priority, "value") else str(o.priority),
+            "status": o.status.value if hasattr(o.status, "value") else str(o.status),
+            "clinical_notes": o.clinical_notes,
+            "created_at": o.created_at,
+            "report": report_data,
+        })
+    return output
 
 
 @router.get("/orders", response_model=List[LabOrderSummary])

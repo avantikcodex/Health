@@ -5,6 +5,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 export type FontSizeLevel = "normal" | "large" | "xlarge";
 
 interface AccessibilityContextType {
+  mounted: boolean;
   simpleView: boolean;
   setSimpleView: (val: boolean | ((prev: boolean) => boolean)) => void;
   highContrast: boolean;
@@ -15,6 +16,7 @@ interface AccessibilityContextType {
 }
 
 const AccessibilityContext = createContext<AccessibilityContextType>({
+  mounted: false,
   simpleView: false,
   setSimpleView: () => {},
   highContrast: false,
@@ -25,11 +27,13 @@ const AccessibilityContext = createContext<AccessibilityContextType>({
 });
 
 export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [mounted, setMounted] = useState<boolean>(false);
   const [simpleView, setSimpleView] = useState<boolean>(false);
   const [highContrast, setHighContrast] = useState<boolean>(false);
   const [fontSize, setFontSizeState] = useState<FontSizeLevel>("normal");
 
   useEffect(() => {
+    setMounted(true);
     const savedSimple = localStorage.getItem("careflow_simple_view");
     if (savedSimple) setSimpleView(savedSimple === "true");
 
@@ -41,6 +45,14 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
       setFontSizeState(savedSize);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("high-contrast", highContrast);
+      document.documentElement.classList.toggle("text-size-large", fontSize === "large");
+      document.documentElement.classList.toggle("text-size-xlarge", fontSize === "xlarge");
+    }
+  }, [highContrast, fontSize]);
 
   const setFontSize = (size: FontSizeLevel) => {
     setFontSizeState(size);
@@ -75,6 +87,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
   return (
     <AccessibilityContext.Provider
       value={{
+        mounted,
         simpleView,
         setSimpleView: updateSimpleView,
         highContrast,

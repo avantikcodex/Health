@@ -12,6 +12,7 @@ import {
   RotateCcw,
   History,
   Lock,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import ConfirmationModal from "@/components/admin/ConfirmationModal";
@@ -35,6 +36,8 @@ export default function UserManagementPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedUser, setSelectedUser] = useState<PlatformUser | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<PlatformUser | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   useEffect(() => {
@@ -82,6 +85,8 @@ export default function UserManagementPage() {
         type: "success",
         message: `Account for ${selectedUser.full_name} has been suspended.`,
       });
+      setConfirmModalOpen(false);
+      setSelectedUser(null);
       fetchUsers();
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to suspend user." });
@@ -98,6 +103,27 @@ export default function UserManagementPage() {
       fetchUsers();
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to reactivate user." });
+    }
+  };
+
+  const handleOpenDeleteModal = (user: PlatformUser) => {
+    setUserToDelete(user);
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!userToDelete) return;
+    try {
+      await api.delete(`/admin/users/${userToDelete.id}`);
+      setFeedback({
+        type: "success",
+        message: `Account for "${userToDelete.full_name}" has been permanently removed.`,
+      });
+      setDeleteModalOpen(false);
+      setUserToDelete(null);
+      fetchUsers();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to delete user." });
     }
   };
 
@@ -324,6 +350,14 @@ export default function UserManagementPage() {
                             <span>Reactivate</span>
                           </button>
                         )}
+
+                        <button
+                          onClick={() => handleOpenDeleteModal(user)}
+                          title="Permanently remove / cut user"
+                          className="p-1 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/30 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -343,6 +377,18 @@ export default function UserManagementPage() {
         description="Suspending this account will immediately revoke all active JWT sessions and reject subsequent authentication attempts."
         requiredPhrase="SUSPEND"
         confirmButtonText="Confirm Account Suspension"
+        isDanger={true}
+      />
+
+      {/* Confirmation Modal for Permanent User Deletion */}
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={executeDelete}
+        title={`Permanently Delete User ${userToDelete?.full_name}?`}
+        description="Permanently removing (cutting) this user account will delete their profile, active sessions, and personal records from the CareFlow database. This action CANNOT be undone."
+        requiredPhrase="DELETE"
+        confirmButtonText="Permanently Delete User"
         isDanger={true}
       />
     </div>

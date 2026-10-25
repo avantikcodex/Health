@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,8 +13,9 @@ from backend.app.core.security import get_password_hash
 from backend.app.core.websocket_manager import ws_manager
 from backend.app.models.appointment import Appointment, QueueTicket
 from backend.app.models.audit import AuditLog
-from backend.app.models.clinical import LabOrder, LabReport
-from backend.app.models.enums import AppointmentStatus, QueueState, UserRole
+from backend.app.models.base import generate_uuid
+from backend.app.models.clinical import Encounter, LabOrder, LabReport, PatientDocument, Prescription
+from backend.app.models.enums import AppointmentStatus, Gender, QueueState, UserRole
 from backend.app.models.hospital import Department, DoctorProfile, DoctorSchedule, Hospital
 from backend.app.models.hospital_admin import HospitalAdminAssignment
 from backend.app.models.session import AdminSession
@@ -39,6 +40,36 @@ class CreateStaffRequest(BaseModel):
     phone: str = Field(..., min_length=8)
     password: str = Field(default="password123", min_length=6)
     role: str = Field(..., description="RECEPTIONIST or LAB_TECH")
+
+
+class CreateDoctorRequest(BaseModel):
+    full_name: str = Field(..., min_length=2)
+    email: str = Field(..., min_length=5)
+    phone: str = Field(..., min_length=8)
+    password: str = Field(default="DoctorPass@123", min_length=6)
+    department_id: Optional[str] = None
+    specialization: str = Field(..., min_length=2)
+    qualification: str = Field(..., min_length=2)
+    license_number: str = Field(..., min_length=3)
+    room_number: str = Field(default="Room 101")
+    consultation_fee: float = Field(default=500.0, ge=0.0)
+    experience_years: int = Field(default=3, ge=0)
+    listing_status: str = Field(default="APPROVED")
+
+
+class UpdateDoctorStatusRequest(BaseModel):
+    listing_status: Optional[str] = None
+    is_verified: Optional[bool] = None
+
+
+class RegisterWalkInPatientRequest(BaseModel):
+    full_name: str = Field(..., min_length=2)
+    phone: str = Field(..., min_length=10)
+    email: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    gender: Optional[str] = None
+    blood_group: Optional[str] = None
+    address: Optional[str] = None
 
 
 class UpdateDoctorRoomRequest(BaseModel):
@@ -96,48 +127,37 @@ async def get_hospital_admin_scope(
     # Today's Appointments
     appt_stmt = select(func.count(Appointment.id)).where(
         Appointment.hospital_id == hosp.id,
-        func.date(Appointment.scheduled_start) == today,
+        Appointment.appointment_date == today,
     )
     todays_appts = (await db.execute(appt_stmt)).scalar() or 0
 
     # Queue Metrics
-    waiting_stmt = (
-        select(func.count(QueueTicket.id))
-        .join(Appointment, QueueTicket.appointment_id == Appointment.id)
-        .where(
-            Appointment.hospital_id == hosp.id,
-            QueueTicket.ticket_date == today,
-            QueueTicket.state == QueueState.WAITING,
-        )
+    waiting_stmt = select(func.count(QueueTicket.id)).where(
+        QueueTicket.hospital_id == hosp.id,
+        func.date(QueueTicket.check_in_time) == today,
+        QueueTicket.state == QueueState.WAITING,
     )
     waiting_count = (await db.execute(waiting_stmt)).scalar() or 0
 
-    consulting_stmt = (
-        select(func.count(QueueTicket.id))
-        .join(Appointment, QueueTicket.appointment_id == Appointment.id)
-        .where(
-            Appointment.hospital_id == hosp.id,
-            QueueTicket.ticket_date == today,
-            QueueTicket.state == QueueState.IN_CONSULTATION,
-        )
+    consulting_stmt = select(func.count(QueueTicket.id)).where(
+        QueueTicket.hospital_id == hosp.id,
+        func.date(QueueTicket.check_in_time) == today,
+        QueueTicket.state == QueueState.IN_CONSULTATION,
     )
     consulting_count = (await db.execute(consulting_stmt)).scalar() or 0
 
-    completed_stmt = (
-        select(func.count(QueueTicket.id))
-        .join(Appointment, QueueTicket.appointment_id == Appointment.id)
-        .where(
-            Appointment.hospital_id == hosp.id,
-            QueueTicket.ticket_date == today,
-            QueueTicket.state == QueueState.COMPLETED,
-        )
+    completed_stmt = select(func.count(QueueTicket.id)).where(
+        QueueTicket.hospital_id == hosp.id,
+        func.date(QueueTicket.check_in_time) == today,
+        QueueTicket.state == QueueState.COMPLETED,
     )
     completed_count = (await db.execute(completed_stmt)).scalar() or 0
 
     # Lab Orders
     lab_stmt = (
         select(func.count(LabOrder.id))
-        .join(Appointment, LabOrder.appointment_id == Appointment.id)
+        .join(Encounter, LabOrder.encounter_id == Encounter.id)
+        .join(Appointment, Encounter.appointment_id == Appointment.id)
         .where(Appointment.hospital_id == hosp.id)
     )
     total_lab_orders = (await db.execute(lab_stmt)).scalar() or 0
@@ -259,6 +279,51 @@ async def create_hospital_department(
     }
 
 
+@router.delete("/departments/{department_id}")
+async def delete_department(
+    department_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Department).where(
+        Department.id == department_id,
+        Department.hospital_id == ctx.hospital_id,
+    )
+    dept = (await db.execute(stmt)).scalar_one_or_none()
+    if not dept:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found in this hospital.")
+
+    dept_name = dept.name
+    # Unlink or handle doctor profiles in this department
+    doc_profiles = (await db.execute(select(DoctorProfile).where(DoctorProfile.department_id == department_id))).scalars().all()
+    other_dept = (await db.execute(select(Department).where(Department.hospital_id == ctx.hospital_id, Department.id != department_id))).scalar_one_or_none()
+    for dp in doc_profiles:
+        if other_dept:
+            dp.department_id = other_dept.id
+        else:
+            await db.execute(delete(DoctorSchedule).where(DoctorSchedule.doctor_id == dp.id))
+            await db.delete(dp)
+
+    await db.delete(dept)
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="DEPARTMENT_PERMANENTLY_DELETED",
+        resource_type="DEPARTMENT",
+        resource_id=department_id,
+        status="SUCCESS",
+        details_json={"department_name": dept_name, "hospital_id": ctx.hospital_id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "DEPARTMENT_DELETED",
+        "department_id": department_id,
+        "message": f"Department '{dept_name}' has been permanently deleted.",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Staff Management
 # ---------------------------------------------------------------------------
@@ -351,6 +416,101 @@ async def create_hospital_staff(
     }
 
 
+@router.put("/staff/{staff_id}/suspend")
+async def suspend_hospital_staff(
+    staff_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(User).where(
+        User.id == staff_id,
+        User.hospital_id == ctx.hospital_id,
+        User.role.in_([UserRole.RECEPTIONIST, UserRole.LAB_TECH]),
+    )
+    staff = (await db.execute(stmt)).scalar_one_or_none()
+    if not staff:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff member not found in this facility.")
+
+    staff.is_active = False
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="HOSPITAL_STAFF_SUSPENDED",
+        resource_type="USER",
+        resource_id=staff.id,
+        status="SUCCESS",
+        details_json={"staff_name": staff.full_name, "hospital_id": ctx.hospital_id},
+    )
+    db.add(audit)
+    await db.commit()
+    return {"status": "STAFF_SUSPENDED", "staff_id": staff.id, "is_active": False}
+
+
+@router.put("/staff/{staff_id}/reactivate")
+async def reactivate_hospital_staff(
+    staff_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(User).where(
+        User.id == staff_id,
+        User.hospital_id == ctx.hospital_id,
+        User.role.in_([UserRole.RECEPTIONIST, UserRole.LAB_TECH]),
+    )
+    staff = (await db.execute(stmt)).scalar_one_or_none()
+    if not staff:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff member not found in this facility.")
+
+    staff.is_active = True
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="HOSPITAL_STAFF_REACTIVATED",
+        resource_type="USER",
+        resource_id=staff.id,
+        status="SUCCESS",
+        details_json={"staff_name": staff.full_name, "hospital_id": ctx.hospital_id},
+    )
+    db.add(audit)
+    await db.commit()
+    return {"status": "STAFF_REACTIVATED", "staff_id": staff.id, "is_active": True}
+
+
+@router.delete("/staff/{staff_id}")
+async def delete_hospital_staff(
+    staff_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(User).where(
+        User.id == staff_id,
+        User.hospital_id == ctx.hospital_id,
+        User.role.in_([UserRole.RECEPTIONIST, UserRole.LAB_TECH]),
+    )
+    staff = (await db.execute(stmt)).scalar_one_or_none()
+    if not staff:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff member not found in this facility.")
+
+    staff_name = staff.full_name
+    await db.execute(delete(AdminSession).where(AdminSession.user_id == staff.id))
+    await db.delete(staff)
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="HOSPITAL_STAFF_PERMANENTLY_DELETED",
+        resource_type="USER",
+        resource_id=staff_id,
+        status="SUCCESS",
+        details_json={"staff_name": staff_name, "hospital_id": ctx.hospital_id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "STAFF_DELETED",
+        "staff_id": staff_id,
+        "message": f"Staff member '{staff_name}' has been permanently deleted.",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Doctors & Room Assignment
 # ---------------------------------------------------------------------------
@@ -383,14 +543,365 @@ async def get_hospital_doctors(
             "department_name": d.department.name if d.department else "General",
             "specialization": d.specialization,
             "qualification": d.qualification,
+            "license_number": d.license_number,
             "room_number": d.room_number or "Room 101",
             "consultation_fee": d.consultation_fee,
             "experience_years": d.experience_years,
+            "listing_status": d.listing_status or "APPROVED",
             "is_verified": d.is_verified,
             "schedules_count": len(d.schedules),
         }
         for d in doctors
     ]
+
+
+@router.post("/doctors", status_code=status.HTTP_201_CREATED)
+async def create_hospital_doctor(
+    payload: CreateDoctorRequest,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Hospital Admin Doctor Onboarding:
+    Registers a new doctor, binds profile to the admin's hospital, and initialises default OPD schedules.
+    """
+    # Check if user already exists
+    existing_user = (
+        await db.execute(select(User).where(User.email == payload.email.lower()))
+    ).scalar_one_or_none()
+
+    if existing_user:
+        if existing_user.role != UserRole.DOCTOR:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Email already registered under {existing_user.role.value} role.",
+            )
+        # Check if already has a profile at this hospital
+        existing_doc = (
+            await db.execute(
+                select(DoctorProfile).where(
+                    DoctorProfile.user_id == existing_user.id,
+                    DoctorProfile.hospital_id == ctx.hospital_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_doc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Doctor is already affiliated with this hospital.",
+            )
+        doctor_user = existing_user
+    else:
+        # Create user account
+        doctor_user = User(
+            id=generate_uuid(),
+            email=payload.email.lower(),
+            phone=payload.phone.strip(),
+            full_name=payload.full_name.strip(),
+            password_hash=get_password_hash(payload.password),
+            role=UserRole.DOCTOR,
+            is_active=True,
+        )
+        db.add(doctor_user)
+        await db.flush()
+
+    # Department validation or default
+    dept_id = payload.department_id
+    if dept_id:
+        dept = (
+            await db.execute(
+                select(Department).where(
+                    Department.id == dept_id,
+                    Department.hospital_id == ctx.hospital_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not dept:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Department not found in this hospital.",
+            )
+    else:
+        # Fall back to first available department in this hospital
+        dept = (
+            await db.execute(
+                select(Department).where(Department.hospital_id == ctx.hospital_id)
+            )
+        ).scalars().first()
+        dept_id = dept.id if dept else None
+
+    # Create DoctorProfile
+    doc = DoctorProfile(
+        id=generate_uuid(),
+        user_id=doctor_user.id,
+        hospital_id=ctx.hospital_id,
+        department_id=dept_id,
+        specialization=payload.specialization.strip(),
+        qualification=payload.qualification.strip(),
+        registration_number=payload.license_number.strip(),
+        room_number=payload.room_number.strip(),
+        consultation_fee=payload.consultation_fee,
+        experience_years=payload.experience_years,
+        listing_status=payload.listing_status,
+        is_verified=True,
+    )
+    db.add(doc)
+    await db.flush()
+
+    # Create default schedules (Monday to Friday, 09:00 - 17:00)
+    for day in range(5):
+        sched = DoctorSchedule(
+            id=generate_uuid(),
+            doctor_id=doc.id,
+            day_of_week=day,
+            start_time=time(9, 0, 0),
+            end_time=time(17, 0, 0),
+            slot_duration_minutes=15,
+            max_patients_per_session=30,
+            is_active=True,
+        )
+        db.add(sched)
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="DOCTOR_ONBOARDED",
+        resource_type="DOCTOR",
+        resource_id=doc.id,
+        status="SUCCESS",
+        details_json={
+            "doctor_name": payload.full_name,
+            "specialization": payload.specialization,
+            "license_number": payload.license_number,
+            "hospital_id": ctx.hospital_id,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(doc)
+
+    return {
+        "status": "DOCTOR_CREATED",
+        "id": doc.id,
+        "user_id": doctor_user.id,
+        "full_name": doctor_user.full_name,
+        "email": doctor_user.email,
+        "phone": doctor_user.phone,
+        "specialization": doc.specialization,
+        "qualification": doc.qualification,
+        "room_number": doc.room_number,
+        "consultation_fee": doc.consultation_fee,
+        "listing_status": doc.listing_status,
+        "is_verified": doc.is_verified,
+    }
+
+
+@router.put("/doctors/{doctor_id}/status")
+async def update_doctor_status(
+    doctor_id: str,
+    payload: UpdateDoctorStatusRequest,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(
+            or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id),
+            DoctorProfile.hospital_id == ctx.hospital_id,
+        )
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor not found in this hospital.",
+        )
+
+    if payload.listing_status is not None:
+        doc.listing_status = payload.listing_status
+    if payload.is_verified is not None:
+        doc.is_verified = payload.is_verified
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="DOCTOR_STATUS_UPDATED",
+        resource_type="DOCTOR",
+        resource_id=doc.id,
+        status="SUCCESS",
+        details_json={
+            "listing_status": doc.listing_status,
+            "is_verified": doc.is_verified,
+            "hospital_id": ctx.hospital_id,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(doc)
+
+    return {
+        "status": "DOCTOR_STATUS_UPDATED",
+        "doctor_id": doc.id,
+        "listing_status": doc.listing_status,
+        "is_verified": doc.is_verified,
+    }
+
+
+@router.put("/doctors/{doctor_id}/suspend")
+async def suspend_hospital_doctor(
+    doctor_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(
+            or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id),
+            DoctorProfile.hospital_id == ctx.hospital_id,
+        )
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor not found in this hospital.",
+        )
+
+    doc.listing_status = "SUSPENDED"
+    doc.is_verified = False
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="DOCTOR_SUSPENDED",
+        resource_type="DOCTOR",
+        resource_id=doc.id,
+        status="SUCCESS",
+        details_json={
+            "listing_status": doc.listing_status,
+            "is_verified": doc.is_verified,
+            "hospital_id": ctx.hospital_id,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(doc)
+
+    return {
+        "status": "DOCTOR_SUSPENDED",
+        "doctor_id": doc.id,
+        "listing_status": "SUSPENDED",
+        "is_verified": False,
+    }
+
+
+@router.put("/doctors/{doctor_id}/reactivate")
+async def reactivate_hospital_doctor(
+    doctor_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(
+            or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id),
+            DoctorProfile.hospital_id == ctx.hospital_id,
+        )
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor not found in this hospital.",
+        )
+
+    doc.listing_status = "APPROVED"
+    doc.is_verified = True
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="DOCTOR_VERIFIED",
+        resource_type="DOCTOR",
+        resource_id=doc.id,
+        status="SUCCESS",
+        details_json={
+            "listing_status": doc.listing_status,
+            "is_verified": doc.is_verified,
+            "hospital_id": ctx.hospital_id,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(doc)
+
+    return {
+        "status": "DOCTOR_REACTIVATED",
+        "doctor_id": doc.id,
+        "listing_status": "APPROVED",
+        "is_verified": True,
+    }
+
+
+@router.delete("/doctors/{doctor_id}")
+async def delete_hospital_doctor(
+    doctor_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = (
+        select(DoctorProfile)
+        .options(selectinload(DoctorProfile.user))
+        .where(
+            or_(DoctorProfile.id == doctor_id, DoctorProfile.user_id == doctor_id),
+            DoctorProfile.hospital_id == ctx.hospital_id,
+        )
+    )
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor not found in this hospital.",
+        )
+
+    doc_name = doc.user.full_name if doc.user else "Doctor"
+    user_id_to_delete = doc.user_id
+    doc_profile_id = doc.id
+
+    # Clean up DoctorSchedule
+    await db.execute(delete(DoctorSchedule).where(DoctorSchedule.doctor_id == doc_profile_id))
+
+    # Clean up QueueTickets and Appointments for this hospital and doctor
+    await db.execute(delete(QueueTicket).where(QueueTicket.doctor_id == doc_profile_id))
+    await db.execute(delete(Appointment).where(Appointment.doctor_id == doc_profile_id))
+
+    # Delete doctor profile
+    await db.delete(doc)
+
+    # If the user has no other hospital profile, remove user account
+    if user_id_to_delete:
+        other_profiles = (await db.execute(select(DoctorProfile).where(DoctorProfile.user_id == user_id_to_delete))).scalars().all()
+        if not other_profiles:
+            await db.execute(delete(AdminSession).where(AdminSession.user_id == user_id_to_delete))
+            usr = (await db.execute(select(User).where(User.id == user_id_to_delete))).scalar_one_or_none()
+            if usr:
+                await db.delete(usr)
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="DOCTOR_PERMANENTLY_DELETED",
+        resource_type="DOCTOR",
+        resource_id=doc_profile_id,
+        status="SUCCESS",
+        details_json={"doctor_name": doc_name, "hospital_id": ctx.hospital_id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "DOCTOR_DELETED",
+        "doctor_id": doc_profile_id,
+        "message": f"Dr. {doc_name} has been permanently removed from this facility.",
+    }
 
 
 @router.put("/doctors/{doctor_id}/room")
@@ -506,7 +1017,7 @@ async def create_doctor_schedule(
         day_of_week=payload.day_of_week,
         start_time=st,
         end_time=et,
-        max_patients=payload.max_patients,
+        max_patients_per_session=payload.max_patients,
         is_active=True,
     )
     db.add(schedule)
@@ -533,6 +1044,422 @@ async def create_doctor_schedule(
 
 
 # ---------------------------------------------------------------------------
+# Patient Registry & Journey (Hospital Scoped)
+# ---------------------------------------------------------------------------
+@router.get("/patients")
+async def get_hospital_patients(
+    q: Optional[str] = Query(None, description="Search by name, phone, or CareFlow ID"),
+    limit: int = Query(50, le=100),
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Hospital-scoped patient directory:
+    Lists patients who have registered or had appointments at this hospital.
+    """
+    # Subquery for patient IDs who had appointments at this hospital
+    appt_subq = (
+        select(Appointment.patient_id)
+        .where(Appointment.hospital_id == ctx.hospital_id)
+        .distinct()
+    )
+
+    stmt = (
+        select(PatientProfile)
+        .options(selectinload(PatientProfile.user))
+        .join(User, PatientProfile.user_id == User.id)
+    )
+
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                PatientProfile.patient_identifier.ilike(term),
+                User.full_name.ilike(term),
+                User.phone.ilike(term),
+                User.email.ilike(term),
+            )
+        )
+    else:
+        # Default to patients connected to this hospital
+        stmt = stmt.where(PatientProfile.id.in_(appt_subq))
+
+    stmt = stmt.order_by(PatientProfile.created_at.desc()).limit(limit)
+    result = await db.execute(stmt)
+    profiles = result.scalars().all()
+
+    output = []
+    for p in profiles:
+        # Count appointments at this hospital
+        appt_count_stmt = select(func.count(Appointment.id)).where(
+            Appointment.patient_id == p.id,
+            Appointment.hospital_id == ctx.hospital_id,
+        )
+        total_appts = (await db.execute(appt_count_stmt)).scalar() or 0
+
+        # Last appointment at this hospital
+        last_appt_stmt = (
+            select(Appointment.appointment_date)
+            .where(
+                Appointment.patient_id == p.id,
+                Appointment.hospital_id == ctx.hospital_id,
+            )
+            .order_by(Appointment.appointment_date.desc())
+            .limit(1)
+        )
+        last_visit = (await db.execute(last_appt_stmt)).scalar()
+
+        output.append({
+            "id": p.id,
+            "patient_identifier": p.patient_identifier or f"CF-PAT-{p.id[:6].upper()}",
+            "full_name": p.user.full_name if p.user else "Patient",
+            "email": p.user.email if p.user else "",
+            "phone": p.user.phone if p.user else "",
+            "age": p.age,
+            "date_of_birth": p.date_of_birth.isoformat() if p.date_of_birth else None,
+            "gender": p.gender.value if p.gender else "NOT_SPECIFIED",
+            "blood_group": p.blood_group,
+            "profile_completed": p.profile_completed,
+            "hospital_appointments_count": total_appts,
+            "last_visit_date": last_visit.isoformat() if last_visit else None,
+        })
+    return output
+
+
+@router.post("/patients/register-walkin", status_code=status.HTTP_201_CREATED)
+async def register_walkin_patient(
+    payload: RegisterWalkInPatientRequest,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Desk Walk-in Patient Registration:
+    Creates a new patient profile with auto-generated CareFlow Patient ID.
+    """
+    phone = payload.phone.strip()
+    email = payload.email.strip().lower() if payload.email else f"walkin_{phone}@careflow.local"
+
+    # Check existing user
+    user_stmt = select(User).where(or_(User.phone == phone, User.email == email))
+    existing_user = (await db.execute(user_stmt)).scalar_one_or_none()
+
+    if existing_user:
+        # Check patient profile
+        p_stmt = select(PatientProfile).where(PatientProfile.user_id == existing_user.id)
+        existing_profile = (await db.execute(p_stmt)).scalar_one_or_none()
+        if existing_profile:
+            return {
+                "status": "ALREADY_REGISTERED",
+                "patient_id": existing_profile.id,
+                "patient_identifier": existing_profile.patient_identifier,
+                "full_name": existing_user.full_name,
+                "phone": existing_user.phone,
+                "message": "Patient is already registered in CareFlow system.",
+            }
+        patient_user = existing_user
+    else:
+        patient_user = User(
+            id=generate_uuid(),
+            email=email,
+            phone=phone,
+            full_name=payload.full_name.strip(),
+            password_hash=get_password_hash("CareFlow@WalkIn2026"),
+            role=UserRole.PATIENT,
+            is_active=True,
+        )
+        db.add(patient_user)
+        await db.flush()
+
+    # Generate patient identifier CF-PAT-XXXXXX
+    count_stmt = select(func.count(PatientProfile.id))
+    total_patients = (await db.execute(count_stmt)).scalar() or 0
+    patient_id_code = f"CF-PAT-{total_patients + 101:06d}"
+
+    gender_enum = None
+    if payload.gender:
+        try:
+            gender_enum = Gender(payload.gender.upper())
+        except ValueError:
+            pass
+
+    profile = PatientProfile(
+        id=generate_uuid(),
+        user_id=patient_user.id,
+        patient_identifier=patient_id_code,
+        dob=payload.date_of_birth,
+        gender=gender_enum,
+        blood_group=payload.blood_group,
+        address=payload.address,
+        profile_completed=True,
+    )
+    db.add(profile)
+    await db.flush()
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="WALKIN_PATIENT_REGISTERED",
+        resource_type="PATIENT",
+        resource_id=profile.id,
+        status="SUCCESS",
+        details_json={
+            "patient_identifier": patient_id_code,
+            "patient_name": payload.full_name,
+            "hospital_id": ctx.hospital_id,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(profile)
+
+    return {
+        "status": "REGISTERED",
+        "patient_id": profile.id,
+        "patient_identifier": profile.patient_identifier,
+        "full_name": patient_user.full_name,
+        "phone": patient_user.phone,
+        "email": patient_user.email,
+        "age": profile.age,
+    }
+
+
+@router.get("/patients/{patient_id}")
+async def get_hospital_patient_detail(
+    patient_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Comprehensive hospital-scoped patient record & care journey tracker.
+    """
+    stmt = (
+        select(PatientProfile)
+        .options(selectinload(PatientProfile.user))
+        .where(PatientProfile.id == patient_id)
+    )
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found.")
+
+    # Scoped appointments at this hospital
+    appt_stmt = (
+        select(Appointment)
+        .options(
+            selectinload(Appointment.doctor).selectinload(DoctorProfile.user),
+            selectinload(Appointment.doctor).selectinload(DoctorProfile.department),
+            selectinload(Appointment.queue_ticket),
+        )
+        .where(
+            Appointment.patient_id == profile.id,
+            Appointment.hospital_id == ctx.hospital_id,
+        )
+        .order_by(Appointment.appointment_date.desc(), Appointment.start_time.desc())
+    )
+    appts = (await db.execute(appt_stmt)).scalars().all()
+
+    # Scoped prescriptions issued by doctors at this hospital
+    rx_stmt = (
+        select(Prescription)
+        .options(
+            selectinload(Prescription.items),
+            selectinload(Prescription.doctor).selectinload(DoctorProfile.user),
+        )
+        .join(DoctorProfile, Prescription.doctor_id == DoctorProfile.id)
+        .where(
+            Prescription.patient_id == profile.id,
+            DoctorProfile.hospital_id == ctx.hospital_id,
+        )
+        .order_by(Prescription.created_at.desc())
+    )
+    prescriptions = (await db.execute(rx_stmt)).scalars().all()
+
+    # Scoped lab orders for this patient associated with this hospital
+    lab_stmt = (
+        select(LabOrder)
+        .join(Encounter, LabOrder.encounter_id == Encounter.id)
+        .join(Appointment, Encounter.appointment_id == Appointment.id)
+        .options(
+            selectinload(LabOrder.doctor).selectinload(DoctorProfile.user),
+            selectinload(LabOrder.report),
+        )
+        .where(
+            LabOrder.patient_id == profile.id,
+            Appointment.hospital_id == ctx.hospital_id,
+        )
+        .order_by(LabOrder.created_at.desc())
+    )
+    labs = (await db.execute(lab_stmt)).scalars().all()
+
+    # Patient documents
+    doc_stmt = (
+        select(PatientDocument)
+        .where(
+            PatientDocument.patient_id == profile.id,
+            or_(
+                PatientDocument.hospital_id == ctx.hospital_id,
+                PatientDocument.hospital_id.is_(None),
+            ),
+        )
+        .order_by(PatientDocument.created_at.desc())
+    )
+    docs = (await db.execute(doc_stmt)).scalars().all()
+
+    # Construct Care Journey Timeline
+    timeline_events = []
+    for a in appts:
+        timeline_events.append({
+            "type": "APPOINTMENT",
+            "date": a.appointment_date.isoformat(),
+            "time": a.start_time.isoformat() if a.start_time else "",
+            "title": f"Consultation with {a.doctor.user.full_name if (a.doctor and a.doctor.user) else 'Doctor'}",
+            "department": a.doctor.department.name if (a.doctor and a.doctor.department) else "General",
+            "status": a.status.value,
+            "badge": a.status.value,
+        })
+    for rx in prescriptions:
+        timeline_events.append({
+            "type": "PRESCRIPTION",
+            "date": rx.created_at.date().isoformat() if rx.created_at else "",
+            "time": rx.created_at.strftime("%H:%M") if rx.created_at else "",
+            "title": f"Prescription #{rx.prescription_number}",
+            "department": f"{len(rx.items)} Medication(s)",
+            "status": "ISSUED",
+            "badge": "Digitally Signed",
+            "verification_code": rx.verification_code,
+        })
+    for lb in labs:
+        timeline_events.append({
+            "type": "LAB_ORDER",
+            "date": lb.created_at.date().isoformat() if lb.created_at else "",
+            "time": lb.created_at.strftime("%H:%M") if lb.created_at else "",
+            "title": f"Diagnostic: {lb.test_name}",
+            "department": lb.priority.value if hasattr(lb.priority, "value") else str(lb.priority),
+            "status": lb.status.value if hasattr(lb.status, "value") else str(lb.status),
+            "badge": "Abnormal" if (lb.report and lb.report.abnormal_flags) else "Normal",
+        })
+    timeline_events.sort(key=lambda x: (x["date"], x.get("time", "")), reverse=True)
+
+    return {
+        "profile": {
+            "id": profile.id,
+            "patient_identifier": profile.patient_identifier or f"CF-PAT-{profile.id[:6].upper()}",
+            "full_name": profile.user.full_name if profile.user else "Patient",
+            "email": profile.user.email if profile.user else "",
+            "phone": profile.user.phone if profile.user else "",
+            "age": profile.age,
+            "date_of_birth": profile.date_of_birth.isoformat() if profile.date_of_birth else None,
+            "gender": profile.gender.value if profile.gender else "NOT_SPECIFIED",
+            "blood_group": profile.blood_group,
+            "address": profile.address,
+            "preferred_language": profile.preferred_language,
+            "profile_completed": profile.profile_completed,
+            "id_verified": profile.id_verified,
+            "id_document_type": profile.id_document_type,
+            "id_document_masked": profile.id_document_masked,
+        },
+        "appointments": [
+            {
+                "id": a.id,
+                "booking_reference": a.booking_reference,
+                "appointment_date": a.appointment_date.isoformat(),
+                "start_time": a.start_time.isoformat() if a.start_time else "",
+                "doctor_name": a.doctor.user.full_name if (a.doctor and a.doctor.user) else "Doctor",
+                "department_name": a.doctor.department.name if (a.doctor and a.doctor.department) else "OPD",
+                "status": a.status.value,
+                "reason_for_visit": a.reason_for_visit,
+                "token_number": a.queue_ticket.ticket_number if a.queue_ticket else None,
+            }
+            for a in appts
+        ],
+        "prescriptions": [
+            {
+                "id": rx.id,
+                "prescription_number": rx.prescription_number,
+                "doctor_name": rx.doctor.user.full_name if (rx.doctor and rx.doctor.user) else "Doctor",
+                "issued_at": rx.created_at.isoformat() if rx.created_at else "",
+                "items_count": len(rx.items),
+                "instructions": rx.instructions,
+            }
+            for rx in prescriptions
+        ],
+        "lab_orders": [
+            {
+                "id": lb.id,
+                "test_name": lb.test_name,
+                "status": lb.status.value if hasattr(lb.status, "value") else str(lb.status),
+                "has_report": lb.report is not None,
+                "is_abnormal": lb.report.abnormal_flags if lb.report else False,
+                "created_at": lb.created_at.isoformat() if lb.created_at else "",
+            }
+            for lb in labs
+        ],
+        "documents": [
+            {
+                "id": d.id,
+                "title": d.title,
+                "document_type": d.document_type,
+                "file_name": d.file_name,
+                "file_size": d.file_size,
+                "is_external": d.is_external,
+                "verification_status": d.verification_status,
+                "created_at": d.created_at.isoformat() if d.created_at else "",
+            }
+            for d in docs
+        ],
+        "timeline": timeline_events,
+    }
+
+
+@router.delete("/patients/{patient_id}")
+async def delete_hospital_patient(
+    patient_id: str,
+    ctx: HospitalAdminContext = Depends(get_current_hospital_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hospital Admin: Removes a patient record / visits unlinked from this hospital facility."""
+    stmt = (
+        select(PatientProfile)
+        .options(selectinload(PatientProfile.user))
+        .where(or_(PatientProfile.id == patient_id, PatientProfile.user_id == patient_id))
+    )
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found.")
+
+    pat_name = profile.user.full_name if profile.user else "Patient"
+
+    # Remove hospital appointments and queue tickets
+    await db.execute(
+        delete(QueueTicket).where(
+            QueueTicket.patient_id == profile.id,
+            QueueTicket.hospital_id == ctx.hospital_id,
+        )
+    )
+    await db.execute(
+        delete(Appointment).where(
+            Appointment.patient_id == profile.id,
+            Appointment.hospital_id == ctx.hospital_id,
+        )
+    )
+
+    audit = AuditLog(
+        actor_id=ctx.user.id,
+        action="HOSPITAL_PATIENT_REMOVED",
+        resource_type="PATIENT",
+        resource_id=profile.id,
+        status="SUCCESS",
+        details_json={"patient_name": pat_name, "hospital_id": ctx.hospital_id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "status": "PATIENT_REMOVED",
+        "patient_id": patient_id,
+        "message": f"Patient '{pat_name}' records have been unlinked/removed from this facility.",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Appointments & Queue
 # ---------------------------------------------------------------------------
 @router.get("/appointments")
@@ -551,12 +1478,12 @@ async def get_hospital_appointments(
             selectinload(Appointment.queue_ticket),
         )
         .where(Appointment.hospital_id == ctx.hospital_id)
-        .order_by(Appointment.scheduled_start.desc())
+        .order_by(Appointment.appointment_date.desc(), Appointment.start_time.desc())
         .limit(100)
     )
 
     if appt_date:
-        stmt = stmt.where(func.date(Appointment.scheduled_start) == appt_date)
+        stmt = stmt.where(Appointment.appointment_date == appt_date)
     if status_filter:
         stmt = stmt.where(Appointment.status == status_filter)
 
@@ -571,7 +1498,7 @@ async def get_hospital_appointments(
             "doctor_name": a.doctor.user.full_name if (a.doctor and a.doctor.user) else "Unknown Doctor",
             "department_name": a.doctor.department.name if (a.doctor and a.doctor.department) else "General OPD",
             "scheduled_start": a.scheduled_start.isoformat() if a.scheduled_start else "",
-            "scheduled_end": a.scheduled_end.isoformat() if a.scheduled_end else "",
+            "scheduled_end": datetime.combine(a.appointment_date, a.end_time).isoformat() if a.appointment_date and a.end_time else "",
             "status": a.status.value,
             "appointment_type": a.appointment_type.value,
             "token_number": a.queue_ticket.ticket_number if a.queue_ticket else None,
@@ -595,10 +1522,10 @@ async def get_hospital_queue(
             selectinload(QueueTicket.appointment).selectinload(Appointment.doctor).selectinload(DoctorProfile.user),
         )
         .where(
-            Appointment.hospital_id == ctx.hospital_id,
-            QueueTicket.ticket_date == today,
+            QueueTicket.hospital_id == ctx.hospital_id,
+            func.date(QueueTicket.check_in_time) == today,
         )
-        .order_by(QueueTicket.ticket_number)
+        .order_by(QueueTicket.sequence_number)
     )
     result = await db.execute(stmt)
     tickets = result.scalars().all()
@@ -607,6 +1534,7 @@ async def get_hospital_queue(
         {
             "id": t.id,
             "ticket_number": t.ticket_number,
+            "sequence_number": t.sequence_number,
             "state": t.state.value,
             "patient_name": (
                 t.appointment.patient.user.full_name
@@ -619,9 +1547,9 @@ async def get_hospital_queue(
                 else "Doctor"
             ),
             "doctor_id": t.appointment.doctor_id if t.appointment else None,
-            "estimated_wait_time": t.estimated_wait_time,
-            "called_at": t.called_at.isoformat() if t.called_at else None,
-            "created_at": t.created_at.isoformat() if t.created_at else "",
+            "estimated_wait_minutes": t.estimated_wait_minutes,
+            "called_time": t.called_time.isoformat() if t.called_time else None,
+            "check_in_time": t.check_in_time.isoformat() if t.check_in_time else "",
         }
         for t in tickets
     ]
@@ -676,14 +1604,10 @@ async def get_hospital_operations(
     db: AsyncSession = Depends(get_db),
 ):
     today = date.today()
-    waiting_stmt = (
-        select(func.count(QueueTicket.id))
-        .join(Appointment, QueueTicket.appointment_id == Appointment.id)
-        .where(
-            Appointment.hospital_id == ctx.hospital_id,
-            QueueTicket.ticket_date == today,
-            QueueTicket.state == QueueState.WAITING,
-        )
+    waiting_stmt = select(func.count(QueueTicket.id)).where(
+        QueueTicket.hospital_id == ctx.hospital_id,
+        func.date(QueueTicket.check_in_time) == today,
+        QueueTicket.state == QueueState.WAITING,
     )
     waiting_count = (await db.execute(waiting_stmt)).scalar() or 0
 
@@ -736,10 +1660,12 @@ async def get_hospital_lab_orders(
 ):
     stmt = (
         select(LabOrder)
-        .join(Appointment, LabOrder.appointment_id == Appointment.id)
+        .join(Encounter, LabOrder.encounter_id == Encounter.id)
+        .join(Appointment, Encounter.appointment_id == Appointment.id)
         .options(
-            selectinload(LabOrder.appointment).selectinload(Appointment.patient).selectinload(PatientProfile.user),
-            selectinload(LabOrder.reports),
+            selectinload(LabOrder.patient).selectinload(PatientProfile.user),
+            selectinload(LabOrder.doctor).selectinload(DoctorProfile.user),
+            selectinload(LabOrder.report),
         )
         .where(Appointment.hospital_id == ctx.hospital_id)
         .order_by(LabOrder.created_at.desc())
@@ -751,20 +1677,21 @@ async def get_hospital_lab_orders(
     items = []
     for o in orders:
         patient_name = (
-            o.appointment.patient.user.full_name
-            if (o.appointment and o.appointment.patient and o.appointment.patient.user)
+            o.patient.user.full_name
+            if (o.patient and o.patient.user)
             else "Unknown Patient"
         )
-        has_abnormal = any(r.is_abnormal for r in o.reports) if o.reports else False
+        has_abnormal = o.report.abnormal_flags if o.report else False
         items.append({
             "id": o.id,
-            "appointment_id": o.appointment_id,
+            "encounter_id": o.encounter_id,
             "patient_name": patient_name,
+            "doctor_name": o.doctor.user.full_name if (o.doctor and o.doctor.user) else "Doctor",
             "test_name": o.test_name,
-            "priority": o.priority.value,
-            "status": o.status.value,
+            "priority": o.priority.value if hasattr(o.priority, "value") else str(o.priority),
+            "status": o.status.value if hasattr(o.status, "value") else str(o.status),
             "is_abnormal": has_abnormal,
-            "reports_count": len(o.reports),
+            "has_report": o.report is not None,
             "created_at": o.created_at.isoformat() if o.created_at else "",
         })
     return items

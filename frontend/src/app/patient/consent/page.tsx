@@ -20,6 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface ConsentItem {
   id: string;
@@ -43,6 +44,7 @@ interface AuditLogItem {
 }
 
 export default function ConsentManagementPage() {
+  const { t } = useLanguage();
   const [consents, setConsents] = useState<ConsentItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,20 +117,24 @@ export default function ConsentManagementPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-      <Link
-        href="/patient/dashboard"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Dashboard
-      </Link>
+      {/* Prominent Back to Dashboard Navigation Button */}
+      <div>
+        <Link
+          href="/patient/dashboard"
+          className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 hover:text-emerald-700 hover:border-emerald-300 font-bold text-sm shadow-2xs hover:shadow-xs transition-all min-h-[44px] group"
+          title={t("patient.back_to_dashboard", "Back to Dashboard")}
+        >
+          <ArrowLeft className="w-5 h-5 text-slate-600 group-hover:text-emerald-600 group-hover:-translate-x-1 transition-transform" />
+          <span>{t("patient.back_to_dashboard", "Back to Dashboard")}</span>
+        </Link>
+      </div>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              DPDP Act 2023 Consent Manager
+              {t("patient.dpdp_consent", "DPDP Act 2023 Consent Manager")}
             </h1>
             <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" />

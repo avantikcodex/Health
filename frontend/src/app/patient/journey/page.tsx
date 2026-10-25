@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   Calendar,
   CheckCircle2,
@@ -25,6 +26,7 @@ import {
   User,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface JourneyEvent {
   id: string;
@@ -49,6 +51,7 @@ interface JourneyData {
 }
 
 export default function CareJourneyPage() {
+  const { t } = useLanguage();
   const [journey, setJourney] = useState<JourneyData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -96,28 +99,40 @@ export default function CareJourneyPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      {/* Prominent Back to Dashboard Navigation Button */}
+      <div>
+        <Link
+          href="/patient/dashboard"
+          className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 hover:text-emerald-700 hover:border-emerald-300 font-bold text-sm shadow-2xs hover:shadow-xs transition-all min-h-[44px] group"
+          title={t("patient.back_to_dashboard", "Back to Dashboard")}
+        >
+          <ArrowLeft className="w-5 h-5 text-slate-600 group-hover:text-emerald-600 group-hover:-translate-x-1 transition-transform" />
+          <span>{t("patient.back_to_dashboard", "Back to Dashboard")}</span>
+        </Link>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              Connected Care Journey
+              {t("patient.my_care_journey", "Connected Care Journey")}
             </h1>
             <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full">
               Unified Timeline
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Tracking what happened, what is happening now, and what needs to happen next across hospitals.
+            {t("patient.subtitle", "Tracking what happened, what is happening now, and what needs to happen next across hospitals.")}
           </p>
         </div>
 
         <Link
           href="/patient/consent"
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors self-start sm:self-auto"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors self-start sm:self-auto min-h-[44px]"
         >
           <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          Manage DPDP Sharing
+          {t("patient.consent_privacy", "Manage DPDP Sharing")}
         </Link>
       </div>
 

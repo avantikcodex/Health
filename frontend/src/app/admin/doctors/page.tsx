@@ -15,6 +15,7 @@ import {
   ExternalLink,
   X,
   FileCheck,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import ConfirmationModal from "@/components/admin/ConfirmationModal";
@@ -44,6 +45,8 @@ export default function DoctorVerificationCenter() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState<DoctorUser | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [doctorToDelete, setDoctorToDelete] = useState<DoctorUser | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Form states for doctor onboarding
@@ -100,6 +103,8 @@ export default function DoctorVerificationCenter() {
         type: "success",
         message: `Dr. ${selectedDoctor.full_name} has been suspended from OPD practice.`,
       });
+      setConfirmModalOpen(false);
+      setSelectedDoctor(null);
       loadData();
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to suspend doctor." });
@@ -116,6 +121,27 @@ export default function DoctorVerificationCenter() {
       loadData();
     } catch (err: any) {
       setFeedback({ type: "error", message: err?.message || "Failed to reactivate doctor." });
+    }
+  };
+
+  const handleOpenDeleteModal = (doc: DoctorUser) => {
+    setDoctorToDelete(doc);
+    setDeleteModalOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!doctorToDelete) return;
+    try {
+      await api.delete(`/admin/doctors/${doctorToDelete.id}`);
+      setFeedback({
+        type: "success",
+        message: `Dr. ${doctorToDelete.full_name} has been permanently deleted from the platform.`,
+      });
+      setDeleteModalOpen(false);
+      setDoctorToDelete(null);
+      loadData();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err?.message || "Failed to delete doctor." });
     }
   };
 
@@ -346,6 +372,14 @@ export default function DoctorVerificationCenter() {
                             <span>Reactivate</span>
                           </button>
                         )}
+
+                        <button
+                          onClick={() => handleOpenDeleteModal(doc)}
+                          title="Permanently remove / cut doctor"
+                          className="p-1 rounded-lg text-rose-400 hover:text-white hover:bg-rose-600/30 border border-rose-500/30 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -365,6 +399,18 @@ export default function DoctorVerificationCenter() {
         description="Suspending this clinician will immediately close their active OPD queue and prevent any new patient appointment bookings."
         requiredPhrase="SUSPEND"
         confirmButtonText="Confirm Suspension"
+        isDanger={true}
+      />
+
+      {/* Confirmation Modal for Permanent Doctor Deletion */}
+      <ConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={executeDelete}
+        title={`Permanently Delete Dr. ${doctorToDelete?.full_name}?`}
+        description="Permanently removing (cutting) this clinician will delete their doctor credentials, roster, assigned consultation room, and appointments. This action CANNOT be undone."
+        requiredPhrase="DELETE"
+        confirmButtonText="Permanently Delete Doctor"
         isDanger={true}
       />
 

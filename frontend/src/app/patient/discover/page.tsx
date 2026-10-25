@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowLeft,
   Calendar,
   CheckCircle2,
   Clock,
@@ -15,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface Doctor {
   id: string;
@@ -39,6 +41,7 @@ interface HospitalItem {
 }
 
 export default function DoctorDiscoveryPage() {
+  const { t } = useLanguage();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [hospitals, setHospitals] = useState<HospitalItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -120,12 +123,19 @@ export default function DoctorDiscoveryPage() {
     setBookingLoading(true);
     setBookingError(null);
     try {
+      const slotParts = selectedSlot.split("T");
+      const datePart = slotParts[0] || selectedDate;
+      const timePart = slotParts[1] ? slotParts[1].substring(0, 5) : "09:00";
+
       const res = await api.post<any>("/appointments/book", {
         doctor_id: bookingDoctor.id,
         hospital_id: bookingDoctor.hospital_id,
+        appointment_date: datePart,
+        start_time: timePart,
         scheduled_start: selectedSlot,
+        reason_for_visit: chiefComplaint || "General consultation",
         chief_complaint: chiefComplaint || "General consultation",
-        appointment_type: "IN_PERSON",
+        appointment_type: "NEW_CONSULT",
       });
       setBookingSuccess(res);
     } catch (err: any) {
@@ -154,20 +164,32 @@ export default function DoctorDiscoveryPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* Prominent Back Navigation Button */}
+      <div>
+        <Link
+          href="/patient/dashboard"
+          className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 hover:text-emerald-700 hover:border-emerald-300 font-bold text-sm shadow-2xs hover:shadow-xs transition-all min-h-[44px] group"
+          title={t("patient.back_to_dashboard", "Back to Dashboard")}
+        >
+          <ArrowLeft className="w-5 h-5 text-slate-600 group-hover:text-emerald-600 group-hover:-translate-x-1 transition-transform" />
+          <span>{t("patient.back_to_dashboard", "Back to Dashboard")}</span>
+        </Link>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Discover Verified Doctors & Hospitals
+            {t("patient.discover_title", "Discover Verified Doctors & Hospitals")}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Book verified clinical consultations across integrated hospital networks.
+            {t("patient.discover_subtitle", "Book verified clinical consultations across integrated hospital networks.")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            ABDM / HPR Registry Verified
+            {t("patient.hpr_verified", "ABDM / HPR Registry Verified")}
           </span>
         </div>
       </div>
@@ -178,7 +200,7 @@ export default function DoctorDiscoveryPage() {
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search doctor name, specialty (e.g. Cardiology), or hospital..."
+            placeholder={t("patient.search_placeholder", "Search doctor name, specialty, or hospital...")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
@@ -194,7 +216,7 @@ export default function DoctorDiscoveryPage() {
           >
             {specialties.map((s) => (
               <option key={s} value={s}>
-                {s === "ALL" ? "All Specialties" : s}
+                {s === "ALL" ? t("patient.all_specialties", "All Specialties") : s}
               </option>
             ))}
           </select>
@@ -205,7 +227,7 @@ export default function DoctorDiscoveryPage() {
             onChange={(e) => setSelectedHospital(e.target.value)}
             className="w-full md:w-auto px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/30 font-medium text-slate-700"
           >
-            <option value="ALL">All Hospitals</option>
+            <option value="ALL">{t("patient.all_hospitals", "All Hospitals")}</option>
             {hospitals.map((h) => (
               <option key={h.id} value={h.id}>
                 {h.name} ({h.city})
@@ -259,12 +281,12 @@ export default function DoctorDiscoveryPage() {
 
                 <div className="flex items-center justify-between pt-1 text-xs">
                   <div>
-                    <span className="text-slate-400">Consultation Fee</span>
+                    <span className="text-slate-400">{t("patient.consultation_fee", "Consultation Fee")}</span>
                     <p className="font-bold text-slate-900 text-sm">₹{doc.consultation_fee}</p>
                   </div>
                   <div className="text-right">
-                    <span className="text-slate-400">Pacing</span>
-                    <p className="font-medium text-slate-700">{doc.avg_consultation_minutes} mins</p>
+                    <span className="text-slate-400">{t("patient.pacing", "Pacing")}</span>
+                    <p className="font-medium text-slate-700">{doc.avg_consultation_minutes} {t("patient.mins", "mins")}</p>
                   </div>
                 </div>
               </div>
@@ -272,10 +294,10 @@ export default function DoctorDiscoveryPage() {
               <div className="mt-5 pt-4 border-t border-slate-100">
                 <button
                   onClick={() => handleOpenBooking(doc)}
-                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs"
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs min-h-[44px]"
                 >
                   <Calendar className="w-4 h-4" />
-                  Select Slot & Book
+                  <span>{t("patient.select_slot_book", "Select Slot & Book")}</span>
                 </button>
               </div>
             </div>
@@ -289,14 +311,14 @@ export default function DoctorDiscoveryPage() {
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-start justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-lg text-slate-900">Book OPD Appointment</h3>
+                <h3 className="font-bold text-lg text-slate-900">{t("patient.book_opd_appointment", "Book OPD Appointment")}</h3>
                 <p className="text-xs text-slate-500">
                   {bookingDoctor.full_name} • {bookingDoctor.specialization} ({bookingDoctor.hospital_name})
                 </p>
               </div>
               <button
                 onClick={() => setBookingDoctor(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -308,7 +330,7 @@ export default function DoctorDiscoveryPage() {
                   <CheckCircle2 className="w-7 h-7" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-lg text-slate-900">Appointment Confirmed!</h4>
+                  <h4 className="font-bold text-lg text-slate-900">{t("patient.appointment_confirmed", "Appointment Confirmed!")}</h4>
                   <p className="text-xs text-slate-500 mt-1">
                     Scheduled for {new Date(bookingSuccess.scheduled_start).toLocaleString()}
                   </p>
@@ -319,15 +341,15 @@ export default function DoctorDiscoveryPage() {
                 <div className="flex items-center justify-center gap-3 pt-2">
                   <Link
                     href={`/patient/appointments/${bookingSuccess.id}/checkin`}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold"
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold min-h-[44px] flex items-center"
                   >
-                    View Check-In Ticket
+                    {t("patient.view_checkin_ticket", "View Check-In Ticket")}
                   </Link>
                   <Link
                     href="/patient/dashboard"
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold"
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold min-h-[44px] flex items-center"
                   >
-                    Go to Dashboard
+                    {t("patient.back_to_dashboard", "Back to Dashboard")}
                   </Link>
                 </div>
               </div>
@@ -341,7 +363,7 @@ export default function DoctorDiscoveryPage() {
 
                 {/* Date Picker */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Select Consultation Date</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">{t("patient.select_date", "Select Consultation Date")}</label>
                   <input
                     type="date"
                     value={selectedDate}
@@ -356,11 +378,11 @@ export default function DoctorDiscoveryPage() {
                 {/* Available Slots */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Available Time Slots ({availableSlots.length})
+                    {t("patient.available_slots", "Available Time Slots")} ({availableSlots.length})
                   </label>
                   {availableSlots.length === 0 ? (
                     <p className="text-xs text-slate-500 py-3 text-center bg-slate-50 rounded-xl border border-slate-200">
-                      No slots available on this date. Please choose another day.
+                      {t("patient.no_slots", "No slots available on this date. Please choose another day.")}
                     </p>
                   ) : (
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-1">
@@ -375,7 +397,7 @@ export default function DoctorDiscoveryPage() {
                             key={slot}
                             type="button"
                             onClick={() => setSelectedSlot(slot)}
-                            className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                            className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all min-h-[44px] ${
                               isSelected
                                 ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
                                 : "bg-white text-slate-700 border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/50"
@@ -392,7 +414,7 @@ export default function DoctorDiscoveryPage() {
                 {/* Chief Complaint */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Reason for Visit / Symptoms (Optional)
+                    {t("patient.reason_for_visit", "Reason for Visit / Symptoms (Optional)")}
                   </label>
                   <input
                     type="text"
@@ -408,17 +430,17 @@ export default function DoctorDiscoveryPage() {
                   <button
                     type="button"
                     onClick={() => setBookingDoctor(null)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 min-h-[44px]"
                   >
-                    Cancel
+                    {t("cancel", "Cancel")}
                   </button>
                   <button
                     type="button"
                     disabled={!selectedSlot || bookingLoading}
                     onClick={handleConfirmBooking}
-                    className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 min-h-[44px]"
                   >
-                    {bookingLoading ? "Reserving Slot..." : "Confirm & Lock Slot"}
+                    {bookingLoading ? t("patient.reserving_slot", "Reserving Slot...") : t("patient.confirm_lock_slot", "Confirm & Lock Slot")}
                   </button>
                 </div>
               </div>

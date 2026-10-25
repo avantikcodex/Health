@@ -108,3 +108,38 @@ class LabReport(Base, TimestampMixin):
 
     # Relationships
     lab_order: Mapped["LabOrder"] = relationship("LabOrder", back_populates="report")
+
+
+class PatientDocument(Base, TimestampMixin):
+    """
+    Secure patient medical document storage for external prescriptions, lab reports,
+    and patient-uploaded health records. Clearly distinguished from clinician-authored records.
+    """
+    __tablename__ = "patient_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patient_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    hospital_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True)
+    uploaded_by_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    
+    document_type: Mapped[str] = mapped_column(String(50), nullable=False)  # PRESCRIPTION, LAB_REPORT, DISCHARGE_SUMMARY, OTHER
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    
+    # Crucial distinction: External records cannot be labeled as digitally signed clinician prescriptions
+    is_external: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    verification_status: Mapped[str] = mapped_column(String(30), default="PENDING", nullable=False)  # PENDING, VERIFIED, REJECTED
+    verified_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    patient: Mapped["PatientProfile"] = relationship("PatientProfile", back_populates="documents")
+    uploader = relationship("User", foreign_keys=[uploaded_by_user_id])
+    verifier = relationship("User", foreign_keys=[verified_by_user_id])
+    hospital = relationship("Hospital", foreign_keys=[hospital_id])
+

@@ -59,11 +59,11 @@ export default function HomePage() {
               </Link>
 
               <Link
-                href="/patient/dashboard"
-                className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 font-semibold text-base border border-slate-300 shadow-xs transition-all hover:border-slate-400"
+                href="/patient/login"
+                className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 font-semibold text-base border border-slate-300 shadow-xs transition-all hover:border-teal-500"
               >
-                <Users className="w-5 h-5 text-emerald-600" />
-                Explore Patient Dashboard
+                <Users className="w-5 h-5 text-teal-600" />
+                Dedicated Patient Portal
               </Link>
             </div>
           </div>
@@ -83,7 +83,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {/* Patient Portal Card */}
             <Link
-              href="/patient/dashboard"
+              href="/login?role=PATIENT&redirect=/patient/dashboard"
               className="group p-6 rounded-2xl bg-slate-50 border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all hover:shadow-md flex flex-col justify-between"
             >
               <div>
@@ -96,7 +96,7 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="mt-6 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-                <span>View Rahul Verma&apos;s Journey</span>
+                <span>Sign in as Patient (Rahul Verma)</span>
                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
               </div>
             </Link>

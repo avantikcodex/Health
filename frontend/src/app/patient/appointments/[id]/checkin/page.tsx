@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface TicketData {
   appointment_id: string;
@@ -36,6 +37,7 @@ interface TicketData {
 }
 
 export default function AppointmentCheckInPage() {
+  const { t } = useLanguage();
   const params = useParams();
   const router = useRouter();
   const appointmentId = params?.id as string;
@@ -101,13 +103,17 @@ export default function AppointmentCheckInPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-      <Link
-        href="/patient/dashboard"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Dashboard
-      </Link>
+      {/* Prominent Back to Dashboard Navigation Button */}
+      <div>
+        <Link
+          href="/patient/dashboard"
+          className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-800 hover:text-emerald-700 hover:border-emerald-300 font-bold text-sm shadow-2xs hover:shadow-xs transition-all min-h-[44px] group"
+          title={t("patient.back_to_dashboard", "Back to Dashboard")}
+        >
+          <ArrowLeft className="w-5 h-5 text-slate-600 group-hover:text-emerald-600 group-hover:-translate-x-1 transition-transform" />
+          <span>{t("patient.back_to_dashboard", "Back to Dashboard")}</span>
+        </Link>
+      </div>
 
       {/* Header */}
       <div>
@@ -115,7 +121,7 @@ export default function AppointmentCheckInPage() {
           Smart Contactless Check-In
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Eliminate reception waiting queues. Seamlessly verify your arrival and track your live queue position.
+          {t("patient.not_checked_in", "Eliminate reception waiting queues. Seamlessly verify your arrival and track your live queue position.")}
         </p>
       </div>
 
